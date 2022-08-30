@@ -16,34 +16,20 @@ edi = None
 
 F_IMMED = 0x80
 F_HIDDEN = 0x20
-F_LENMASK = 0x1f     # length mask
+F_LENMASK = 0x1f
 
 
 def _start():
     global ebp, esi
     ebp = _return_stack
     esi = 0
-    # INTERP.NEXT()                    # Run interpreter
-    cold_start()
-
-
-def cold_start():
-    INTERP.QUIT()
-
-
-# class Entry:
-    # def __init__(self, link, name, namelen, label, flags=0):
-        # self.link = link
-        # self.name = name
-        # self.namelen = namelen
-        # self.label = label
-        # self.flags = flags
+    Interp.quit()
 
 
 def defword(name, namelen, code, flags=0):
     # link is start of previous entry in _dictionary
     link, _vars["LATEST"] = _vars["LATEST"], _vars["HERE"]
-    _dictionary.extend([link, flags + namelen, name.upper(), INTERP.DOCOL])
+    _dictionary.extend([link, flags + namelen, name.upper(), Interp.docol])
     # add number of commands and commands to run to _dictionary
     _dictionary.extend(code())
     _vars["HERE"] = len(_dictionary)
@@ -59,116 +45,103 @@ def defcode(name, namelen, code, flags=0):
 
 def defvar(name, namelen, initial=0, flags=0):
     defcode(name, namelen, initial, flags)
-    # PUSH $var_\name
-    # ASM.PUSH(_vars['HERE'] - 1)
+    # push $var_\name
+    # Asm.push(_vars['HERE'] - 1)
     # _vars[name.upper()] = initial
-    # INTERP.NEXT()
 
 
 def defconst(name, namelen, value, flags=0):
     defcode(name, namelen, value, flags)
-    # PUSH $\value
+    # push $\value
     _const[name.upper()] = value
-    # INTERP.NEXT()
 
 
 # --- code for builtin forth words ---
 
 
-class INTERP:
+class Interp:
     input_buffer = []
     word_buffer = []
     docol_run = False
+    interpret_is_lit = 0
 
     @staticmethod
-    def NEXT():
-        ASM.LODSL()
-        _dictionary[eax]()
-        INTERP.docol_run = True
-
-    @staticmethod
-    def DOCOL():
+    def docol():
         # push %esi on to return stack
         global eax, edi, esi
-        ASM.PUSHRSP(esi)
-        INTERP.docol_run = True
+        Asm.pushrsp(esi)
+        Interp.docol_run = True
         esi = eax
-        while INTERP.docol_run:
+        while Interp.docol_run:
             esi += 1
             addr = _dictionary[esi]
             word = _dictionary[addr]
             word()
             edi = addr
-        # INTERP.NEXT()
 
     @staticmethod
-    def EXIT():
+    def exit():
         global esi
-        esi = ASM.POPRSP()
-        INTERP.docol_run = False
-        # INTERP.NEXT()
+        esi = Asm.poprsp()
+        Interp.docol_run = False
 
     @staticmethod
-    def LIT():
+    def lit():
         # %esi points to the next command, but in this case it points to the next
         # literal 32 bit integer. Get that literal into %eax and increment %esi.
-        ASM.LODSL()
-        # ASM.PUSH(eax)
-        ASM.PUSH(_dictionary[esi])
-        # INTERP.NEXT()
+        Asm.lodsl()
+        # Asm.push(eax)
+        Asm.push(_dictionary[esi])
 
     @staticmethod
-    def _KEY():
+    def _key():
         global eax
-        if not INTERP.input_buffer:
-            INTERP.input_buffer = list(map(ord, sys.stdin.readline()))
-            INTERP._KEY()
+        if not Interp.input_buffer:
+            Interp.input_buffer = list(map(ord, sys.stdin.readline()))
+            Interp._key()
         else:
-            eax = INTERP.input_buffer.pop(0)
+            eax = Interp.input_buffer.pop(0)
 
     @staticmethod
-    def KEY():
-        INTERP._KEY()
-        ASM.PUSH(eax)
-        # INTERP.NEXT()
+    def key():
+        Interp._key()
+        Asm.push(eax)
 
     @staticmethod
-    def EMIT():
-        print(chr(ASM.POP()), end="")
-        # INTERP.NEXT()
+    def emit():
+        print(chr(Asm.pop()), end="")
 
     @staticmethod
-    def _WORD():
+    def _word():
         global eax, ecx, edi
-        INTERP.word_buffer = []
+        Interp.word_buffer = []
         while True:
-            INTERP._KEY()
+            Interp._key()
             key = eax
             # start of comment
             if key == ord('\\'):
                 # ignore everything to end of line
                 while key != ord('\n'):
-                    INTERP._KEY()
+                    Interp._key()
                     key = eax
             elif key > ord(' '):
-                INTERP.word_buffer.append(key)
+                Interp.word_buffer.append(key)
             else:
                 break
 
         # save push word address and length
-        edi = INTERP.word_buffer
-        ecx = len(INTERP.word_buffer)
+        edi = Interp.word_buffer
+        ecx = len(Interp.word_buffer)
 
     @staticmethod
-    def WORD():
-        INTERP._WORD()
-        # [ASM.PUSH(c) for c in edi]
-        ASM.PUSH(edi)
-        ASM.PUSH(ecx)
-        # INTERP.NEXT()
+    def word():
+        Interp._word()
+        # [Asm.push(c) for c in edi]
+        Asm.push(edi)
+        Asm.push(ecx)
 
     @staticmethod
-    def _NUMBER():
+    def _number():
         global eax, ebx, ecx
         if ecx == 0:
             return
@@ -194,23 +167,23 @@ class INTERP:
         ecx = unparsed
 
     @staticmethod
-    def NUMBER():
+    def number():
         global ecx, edi
-        ecx = ASM.POP()
-        INTERP.word_buffer = [ASM.POP() for _ in range(ecx)]
-        edi = INTERP.word_buffer
+        ecx = Asm.pop()
+        Interp.word_buffer = [Asm.pop() for _ in range(ecx)]
+        edi = Interp.word_buffer
 
-        INTERP._NUMBER()
+        Interp._number()
 
         # push parsed numbers and number of unparsed chars
-        ASM.PUSH(eax)
-        ASM.PUSH(ecx)
-        # INTERP.NEXT()
+        Asm.push(eax)
+        Asm.push(ecx)
 
     @staticmethod
-    def _FIND():
+    def _find():
         global eax
         word = ''.join(map(chr, edi)).upper()
+        # print(word)
         ndx = _vars["LATEST"]
         while ndx is not None:
             # print(ndx, _dictionary[ndx+2])
@@ -222,43 +195,41 @@ class INTERP:
         eax = ndx
 
     @staticmethod
-    def FIND():
+    def find():
         global eax, edi
-        _ = ASM.POP()
-        # edi = ''.join(map(chr, ASM.POP()))
-        edi = ASM.POP()
+        _ = Asm.pop()
+        # edi = ''.join(map(chr, Asm.pop()))
+        edi = Asm.pop()
 
-        INTERP._FIND()
+        Interp._find()
 
-        ASM.PUSH(eax)
-        # INTERP.NEXT()
+        Asm.push(eax)
 
     @staticmethod
-    def _TCFA():
+    def _tcfa():
         global eax, edi
         edi += 3
 
     @staticmethod
-    def TCFA():
+    def tcfa():
         global edi
-        edi = ASM.POP()
+        edi = Asm.pop()
 
-        INTERP._TCFA()
+        Interp._tcfa()
 
-        ASM.PUSH(edi)
-        # INTERP.NEXT()
+        Asm.push(edi)
 
     @staticmethod
-    def TDFA():
+    def tdfa():
         return [
-            INTERP.TCFA,
+            Interp.tcfa,
             # TODO: inc esp here
-            INTERP.EXIT,
+            Interp.exit,
         ]
 
     @staticmethod
-    def CREATE():
-        length, name = ASM.POP(), ''.join(map(chr, ASM.POP())).upper()
+    def create():
+        length, name = Asm.pop(), ''.join(map(chr, Asm.pop())).upper()
 
         # store latest as link
         _dictionary.append(_vars["LATEST"])
@@ -268,10 +239,9 @@ class INTERP:
 
         # update latest/here
         _vars["LATEST"], _vars["HERE"] = _vars["HERE"], len(_dictionary)
-        # INTERP.NEXT()
 
     @staticmethod
-    def _COMMA():
+    def _comma():
         global eax, edi
         # append data to _dictionary and update HERE
         edi = _vars["HERE"]
@@ -279,588 +249,522 @@ class INTERP:
         _vars["HERE"] = len(_dictionary)
 
     @staticmethod
-    def COMMA():
+    def comma():
         global eax
-        eax = ASM.POP()
-
-        INTERP._COMMA()
-
-        # INTERP.NEXT()
+        eax = Asm.pop()
+        Interp._comma()
 
     @staticmethod
-    def RBRAC():
+    def rbrac():
         _vars["STATE"] = 1
-        # INTERP.NEXT()
 
     @staticmethod
-    def LBRAC():
+    def lbrac():
         _vars["STATE"] = 0
-        # INTERP.NEXT()
 
-    # def _word_to_addr(words):
-    def _w2a(w):
+    def _w2a(w, exclude=None):
+        # convert word string to address in _dictionary
         global eax, edi
         found = []
+        exclude
         # for w in words:
         if True:
             edi = list(map(ord, w))
-            INTERP._FIND()
+            Interp._find()
             edi = eax
             if not edi:
                 import pdb; pdb.set_trace()  # noqa
-            INTERP._TCFA()
+            Interp._tcfa()
             eax = edi
             found.append(eax)
-        # return found
         return eax
 
     @staticmethod
-    def COLON():
+    def colon():
         # return [
-            # INTERP.WORD,                    # get the name of the new word
-            # INTERP.CREATE,                  # create the dictionary entry / header
-            # INTERP.LIT, INTERP.DOCOL,
-                # INTERP.COMMA,               # append DOCOL  (the codeword).
-            # INTERP.LIT, _vars["LATEST"],
-                # INTERP.HIDDEN,              # make the word hidden
-            # INTERP.RBRAC,                   # go into compile mode.
-            # INTERP.EXIT,                    # return from the function.
+            # Interp.word,                    # get the name of the new word
+            # Interp.create,                  # create the dictionary entry / header
+            # Interp.lit, Interp.docol,
+                # Interp.comma,               # append DOCOL  (the codeword).
+            # Interp.lit, _vars["LATEST"],
+                # Interp.hidden,              # make the word hidden
+            # Interp.rbrac,                   # go into compile mode.
+            # Interp.exit,                    # return from the function.
         # ]
         words = [
-            INTERP._w2a("WORD"),                # get the name of the new word
-            INTERP._w2a("CREATE"),              # create the dictionary entry / header
-            INTERP._w2a("LIT"), INTERP.DOCOL,
-                INTERP._w2a(","),               # append DOCOL  (the codeword).
-            # INTERP._w2a("LIT"), INTERP._w2a("LATEST"),
-            INTERP._w2a("LATEST"),
-                # INTERP._w2a("@"),
-                INTERP._w2a("HIDDEN"),          # make the word hidden
-            INTERP._w2a("]"),                   # go into compile mode.
-            INTERP._w2a("EXIT"),                # return from the function.
+            Interp._w2a("WORD"),                # get the name of the new word
+            Interp._w2a("CREATE"),              # create the dictionary entry / header
+            Interp._w2a("LIT"), Interp.docol,
+                Interp._w2a(","),               # append DOCOL  (the codeword).
+            # Interp._w2a("LIT"), Interp._w2a("LATEST"),
+            Interp._w2a("LATEST"),
+                # Interp._w2a("@"),
+                Interp._w2a("HIDDEN"),          # make the word hidden
+            Interp._w2a("]"),                   # go into compile mode.
+            Interp._w2a("EXIT"),                # return from the function.
         ]
-        # return INTERP._word_to_addr(words)
+        # return Interp._w2a(words, exclude=[Interp.docol])
         return words
 
     @staticmethod
-    def SEMICOLON():
+    def semicolon():
         # return [
-            # INTERP.LIT, INTERP.EXIT,
-                # INTERP.COMMA,	            # append EXIT (so word will return)
-            # INTERP.LIT, _vars["LATEST"],
-                # INTERP.HIDDEN, 	            # toggle hidden flag -- unhide the word
-            # INTERP.LBRAC,                   # go back to IMMEDIATE mode.
-            # INTERP.EXIT,                    # return from the function.
+            # Interp.lit, Interp.exit,
+                # Interp.comma,	            # append EXIT (so word will return)
+            # Interp.lit, _vars["LATEST"],
+                # Interp.hidden, 	            # toggle hidden flag -- unhide the word
+            # Interp.lbrac,                   # go back to IMMEDIATE mode.
+            # Interp.exit,                    # return from the function.
         # ]
         words = [
-            INTERP._w2a("LIT"), INTERP._w2a("EXIT"),
-                INTERP._w2a(","),	            # append EXIT (so word will return)
-            # INTERP._w2a("LIT"), _vars["LATEST"],
-            INTERP._w2a("LATEST"),
-                # INTERP._w2a("@"),
-                INTERP._w2a("HIDDEN"), 	        # toggle hidden flag -- unhide the word
-            INTERP._w2a("["),                   # go back to IMMEDIATE mode.
-            INTERP._w2a("EXIT"),                # return from the function.
+            Interp._w2a("LIT"), Interp._w2a("EXIT"),
+                Interp._w2a(","),	            # append EXIT (so word will return)
+            # Interp._w2a("LIT"), _vars["LATEST"],
+            Interp._w2a("LATEST"),
+                # Interp._w2a("@"),
+                Interp._w2a("HIDDEN"), 	        # toggle hidden flag -- unhide the word
+            Interp._w2a("["),                   # go back to IMMEDIATE mode.
+            Interp._w2a("EXIT"),                # return from the function.
         ]
-        # return INTERP._word_to_addr(words)
+        # return Interp._word_to_addr(words)
         return words
 
     @staticmethod
-    def IMMEDIATE():
+    def immediate():
         _dictionary[-1][0] |= F_IMMED
-        # INTERP.NEXT()
 
     @staticmethod
-    def HIDDEN():
-        ndx = ASM.POP()
+    def hidden():
+        ndx = Asm.pop()
         _dictionary[ndx + 1] ^= F_HIDDEN
-        # INTERP.NEXT()
 
     @staticmethod
-    def HIDE():
-        # return [INTERP.WORD, INTERP.FIND, INTERP.HIDDEN, INTERP.EXIT]
-        # return INTERP._word_to_addr(["WORD", "FIND", "HIDDEN", "EXIT"])
-        return [INTERP._w2a("WORD"), INTERP._w2a("FIND"),
-                INTERP._w2a("HIDDEN"), INTERP._w2a("EXIT")]
+    def hide():
+        # return [Interp.word, Interp.find, Interp.hidden, Interp.exit]
+        # return Interp._word_to_addr(["WORD", "FIND", "HIDDEN", "EXIT"])
+        return [Interp._w2a("WORD"), Interp._w2a("FIND"),
+                Interp._w2a("HIDDEN"), Interp._w2a("EXIT")]
 
     @staticmethod
-    def TICK():
+    def tick():
         # lodsl                   // Get the address of the next word and skip it.
-        ASM.LODSL()
+        Asm.lodsl()
         word = _dictionary[eax]
-        ASM.PUSH(word)
-        # INTERP.NEXT()
+        Asm.push(word)
 
     @staticmethod
-    def BRANCH():
+    def branch():
         # add (%esi),%esi         // add the offset to the instruction pointer
-        # INTERP.NEXT()
         pass
 
     @staticmethod
-    def ZBRANCH():
+    def zbranch():
         # pop %eax
         # test %eax,%eax          // top of stack is zero?
         # jz code_BRANCH          // if so, jump back to the branch function above
         # lodsl                   // otherwise we need to skip the offset
-        ASM.LODSL()
-        # INTERP.NEXT()
+        Asm.lodsl()
 
     @staticmethod
-    def LITSTRING():
+    def litstring():
         # lodsl                   // get the length of the string
-        ASM.LODSL()
+        Asm.lodsl()
         # push %esi               // push the address of the start of the string
         # push %eax               // push it on the stack
         # addl %eax,%esi          // skip past the string
         # addl $3,%esi            // but round up to next 4 byte boundary
         # andl $~3,%esi
-        # INTERP.NEXT()
 
     @staticmethod
-    def TELL():
+    def tell():
         # mov $1,%ebx             // 1st param: stdout
         # pop %edx                // 3rd param: length of string
         # pop %ecx                // 2nd param: address of string
         # mov $__NR_write,%eax    // write syscall
         # int $0x80
-        # INTERP.NEXT()
         pass
 
-    interpret_is_lit = 0
-
     @staticmethod
-    def INTERPRET_1():
+    def interpret_1():
         global eax, ebx
         # not in dict or a word, assume it's literal
-        INTERP.interpret_is_lit = 1
-        INTERP._NUMBER()
+        Interp.interpret_is_lit = 1
+        Interp._number()
         errors = ecx
         if errors:
             # TODO: deal number error/string
             # TODO: compiling runs here
-            # INTERP.INTERPRET_6()
+            # Interp.interpret_6()
             # assume string - should be address
-            ASM.PUSH(edi)
+            Asm.push(edi)
             eax = len(edi)
-        else:
+        elif eax:
             ebx = eax
-            # eax = INTERP.LIT
-            eax = INTERP._w2a("LIT")
+            # eax = Interp.lit
+            eax = Interp._w2a("LIT")
 
     @staticmethod
-    def INTERPRET_2():
+    def interpret_2():
         global eax
         state = _vars["STATE"]
-        if state:
-            # compiling
-            INTERP._COMMA()
-            if INTERP.interpret_is_lit:
-                eax = ebx
-                INTERP._COMMA()
+        if eax:
+            if state:
+                # compiling
+                Interp._comma()
+                if Interp.interpret_is_lit:
+                    eax = ebx
+                    Interp._comma()
+                else:
+                    Interp.interpret_3()
             else:
-                INTERP.INTERPRET_3()
-        else:
-            INTERP.INTERPRET_4()
+                Interp.interpret_4()
 
     @staticmethod
-    def INTERPRET_3():
-        # INTERP.NEXT()
+    def interpret_3():
         pass
 
     @staticmethod
-    def INTERPRET_4():
-        if INTERP.interpret_is_lit:
-            INTERP.INTERPRET_5()
+    def interpret_4():
+        if Interp.interpret_is_lit:
+            Interp.interpret_5()
         else:
             # execute word
             word = _dictionary[edi]
             if callable(word):
                 word()
             else:
-                ASM.PUSH(edi)
+                Asm.push(edi)
 
     @staticmethod
-    def INTERPRET_5():
+    def interpret_5():
         global ebx
         if not ebx:
             import pdb; pdb.set_trace()  # noqa
         # push literal on stack
-        ASM.PUSH(ebx)
-        # INTERP.NEXT()
+        Asm.push(ebx)
 
     @staticmethod
-    def INTERPRET_6():
+    def interpret_6():
         print("PARSE ERROR: ")
         # TODO: get input that failed
 
     @staticmethod
-    def INTERPRET_7():
+    def interpret_7():
         # print something?
         pass
 
     @staticmethod
-    def INTERPRET():
+    def interpret():
         global eax, edi
         while True:
-            INTERP._WORD()
-            INTERP.interpret_is_lit = 0
-            INTERP._FIND()
+            Interp._word()
+            Interp.interpret_is_lit = 0
+            Interp._find()
             found = eax
-            # import pdb; pdb.set_trace()  # noqa
-            # print(found)
             if found is not None:
                 edi = eax
                 # get name/flags
                 eax = _dictionary[found + 1]
-                ASM.PUSH(eax)
-                INTERP._TCFA()
-                eax = ASM.POP()
+                Asm.push(eax)
+                Interp._tcfa()
+                eax = Asm.pop()
                 eax = edi
-                # import pdb; pdb.set_trace()  # noqa
                 if _dictionary[found + 1] & F_IMMED:
-                    INTERP.INTERPRET_4()
+                    Interp.interpret_4()
                 else:
-                    INTERP.INTERPRET_2()
+                    Interp.interpret_2()
             else:
-                INTERP.INTERPRET_1()
-                INTERP.INTERPRET_2()
+                Interp.interpret_1()
+                Interp.interpret_2()
 
     @staticmethod
-    def QUIT():
-        INTERP.INTERPRET()
-        # INTERP.BRANCH(), -8
+    def quit():
+        Interp.interpret()
+        # Interp.branch(), -8
 
     @staticmethod
-    def CHAR():
+    def char():
         # TODO
         pass
 
     @staticmethod
-    def EXECUTE():
+    def execute():
         # TODO
         pass
 
 
-class ASM:
+class Asm:
     @staticmethod
-    def PUSH(reg):
+    def push(reg):
         # inc data stack pointer - %ebp
         # move `reg` to %ebp
-        if reg is None:
-            import pdb; pdb.set_trace()  # noqa
-            print("why is it push None")
         _data_stack.append(reg)
 
     @staticmethod
-    def POP():
+    def pop():
         # dec data stack pointer - %ebp
         # move %ebp to `reg`
         return _data_stack.pop()
 
     @staticmethod
-    def PUSHRSP(reg):
+    def pushrsp(reg):
         # inc return stack pointer - %ebp
         # move `reg` to %ebp
         _return_stack.append(reg)
 
     @staticmethod
-    def POPRSP():
+    def poprsp():
         # dec return stack pointer - %ebp
         # move %ebp to `reg`
         return _return_stack.pop()
 
     @staticmethod
-    def LODSL():
+    def lodsl():
         global eax, esi
         # load %esi into %eax, increment %esi
         eax = esi
         esi += 1
 
 
-class MANIPULATORS:
+class Manipulators:
     @staticmethod
-    def DROP():
-        ASM.POP()
-        # INTERP.NEXT()
+    def drop():
+        Asm.pop()
 
     @staticmethod
-    def SWAP():
-        a, b = ASM.POP(), ASM.POP()
-        ASM.PUSH(a)
-        ASM.PUSH(b)
-        # INTERP.NEXT()
+    def swap():
+        a, b = Asm.pop(), Asm.pop()
+        Asm.push(a)
+        Asm.push(b)
 
     @staticmethod
-    def DUP():
-        ASM.PUSH(_data_stack[-1])
-        # INTERP.NEXT()
+    def dup():
+        Asm.push(_data_stack[-1])
 
     @staticmethod
-    def OVER():
-        ASM.PUSH(_data_stack[-2])
-        # INTERP.NEXT()
+    def over():
+        Asm.push(_data_stack[-2])
 
     @staticmethod
-    def ROT():
-        a, b, c = ASM.POP(), ASM.POP(), ASM.POP()
-        ASM.PUSH(b)
-        ASM.PUSH(a)
-        ASM.PUSH(c)
-        # INTERP.NEXT()
+    def rot():
+        a, b, c = Asm.pop(), Asm.pop(), Asm.pop()
+        Asm.push(b)
+        Asm.push(a)
+        Asm.push(c)
 
     @staticmethod
-    def INVROT():
-        a, b, c = ASM.POP(), ASM.POP(), ASM.POP()
-        ASM.PUSH(a)
-        ASM.PUSH(c)
-        ASM.PUSH(b)
-        # INTERP.NEXT()
+    def invrot():
+        a, b, c = Asm.pop(), Asm.pop(), Asm.pop()
+        Asm.push(a)
+        Asm.push(c)
+        Asm.push(b)
 
     @staticmethod
-    def DDROP():
-        ASM.POP()
-        ASM.POP()
-        # INTERP.NEXT()
+    def ddrop():
+        Asm.pop()
+        Asm.pop()
 
     @staticmethod
-    def DSWAP():
-        a, b, c, d = ASM.POP(), ASM.POP(), ASM.POP(), ASM.POP()
-        ASM.PUSH(b)
-        ASM.PUSH(a)
-        ASM.PUSH(d)
-        ASM.PUSH(c)
-        # INTERP.NEXT()
+    def dswap():
+        a, b, c, d = Asm.pop(), Asm.pop(), Asm.pop(), Asm.pop()
+        Asm.push(b)
+        Asm.push(a)
+        Asm.push(d)
+        Asm.push(c)
 
     @staticmethod
-    def DDUP():
+    def ddup():
         _data_stack.extend(_data_stack[-2:])
-        # INTERP.NEXT()
 
     @staticmethod
-    def QDUP():
-        d = ASM.POP()
+    def qdup():
+        d = Asm.pop()
         if d:
-            ASM.PUSH(d)
-            ASM.PUSH(d)
-        # INTERP.NEXT()
+            Asm.push(d)
+            Asm.push(d)
 
     @staticmethod
-    def ONEP():
-        ASM.PUSH(ASM.POP() + 1)
-        # INTERP.NEXT()
+    def onep():
+        Asm.push(Asm.pop() + 1)
 
     @staticmethod
-    def ONEM():
-        ASM.PUSH(ASM.POP() - 1)
-        # INTERP.NEXT()
+    def onem():
+        Asm.push(Asm.pop() - 1)
 
     @staticmethod
-    def PLUS():
-        a, b = ASM.POP(), ASM.POP()
-        ASM.PUSH(a + b)
-        # INTERP.NEXT()
+    def plus():
+        a, b = Asm.pop(), Asm.pop()
+        Asm.push(a + b)
 
     @staticmethod
-    def SUB():
-        a, b = ASM.POP(), ASM.POP()
-        ASM.PUSH(a - b)
-        # INTERP.NEXT()
+    def sub():
+        a, b = Asm.pop(), Asm.pop()
+        Asm.push(a - b)
 
     @staticmethod
-    def MUL():
-        a, b = ASM.POP(), ASM.POP()
-        ASM.PUSH(a * b)
-        # INTERP.NEXT()
+    def mul():
+        a, b = Asm.pop(), Asm.pop()
+        Asm.push(a * b)
 
     @staticmethod
-    def DIVMOD():
-        a, b = ASM.POP(), ASM.POP()
-        ASM.PUSH(divmod(a, b))
-        # INTERP.NEXT()
+    def divmod():
+        a, b = Asm.pop(), Asm.pop()
+        Asm.push(divmod(a, b))
 
     @staticmethod
-    def EQUAL():
-        a, b = ASM.POP(), ASM.POP()
-        ASM.PUSH(a == b)
-        # INTERP.NEXT()
+    def equal():
+        a, b = Asm.pop(), Asm.pop()
+        Asm.push(a == b)
 
     @staticmethod
-    def NEQ():
-        a, b = ASM.POP(), ASM.POP()
-        ASM.PUSH(a != b)
-        # INTERP.NEXT()
+    def neq():
+        a, b = Asm.pop(), Asm.pop()
+        Asm.push(a != b)
 
     @staticmethod
-    def LT():
-        a, b = ASM.POP(), ASM.POP()
-        ASM.PUSH(a < b)
-        # INTERP.NEXT()
+    def lt():
+        a, b = Asm.pop(), Asm.pop()
+        Asm.push(a < b)
 
     @staticmethod
-    def GT():
-        a, b = ASM.POP(), ASM.POP()
-        ASM.PUSH(a > b)
-        # INTERP.NEXT()
+    def gt():
+        a, b = Asm.pop(), Asm.pop()
+        Asm.push(a > b)
 
     @staticmethod
-    def LEQ():
-        a, b = ASM.POP(), ASM.POP()
-        ASM.PUSH(a <= b)
-        # INTERP.NEXT()
+    def leq():
+        a, b = Asm.pop(), Asm.pop()
+        Asm.push(a <= b)
 
     @staticmethod
-    def GEQ():
-        a, b = ASM.POP(), ASM.POP()
-        ASM.PUSH(a >= b)
-        # INTERP.NEXT()
+    def geq():
+        a, b = Asm.pop(), Asm.pop()
+        Asm.push(a >= b)
 
     @staticmethod
-    def ZEQ():
-        a = ASM.POP()
-        ASM.PUSH(a == 0)
-        # INTERP.NEXT()
+    def zeq():
+        a = Asm.pop()
+        Asm.push(a == 0)
 
     @staticmethod
-    def ZNEQ():
-        a = ASM.POP()
-        ASM.PUSh(a != 0)
-        # INTERP.NEXT()
+    def zneq():
+        a = Asm.pop()
+        Asm.PUSh(a != 0)
 
     @staticmethod
-    def ZLT():
-        a = ASM.POP()
-        ASM.PUSH(a < 0)
-        # INTERP.NEXT()
+    def zlt():
+        a = Asm.pop()
+        Asm.push(a < 0)
 
     @staticmethod
-    def ZLEQ():
-        a = ASM.POP()
-        ASM.PUSH(a <= 0)
-        # INTERP.NEXT()
+    def zleq():
+        a = Asm.pop()
+        Asm.push(a <= 0)
 
     @staticmethod
-    def ZGT():
-        a = ASM.POP()
-        ASM.PUSH(a > 0)
-        # INTERP.NEXT()
+    def zgt():
+        a = Asm.pop()
+        Asm.push(a > 0)
 
     @staticmethod
-    def ZGEQ():
-        a = ASM.POP()
-        ASM.PUSH(a >= 0)
-        # INTERP.NEXT()
+    def zgeq():
+        a = Asm.pop()
+        Asm.push(a >= 0)
 
     @staticmethod
-    def AND():
-        a, b = ASM.POP(), ASM.POP()
-        ASM.PUSH(a & b)
-        # INTERP.NEXT()
+    def and_():
+        a, b = Asm.pop(), Asm.pop()
+        Asm.push(a & b)
 
     @staticmethod
-    def OR():
-        a, b = ASM.POP(), ASM.POP()
-        ASM.PUSH(a | b)
-        # INTERP.NEXT()
+    def or_():
+        a, b = Asm.pop(), Asm.pop()
+        Asm.push(a | b)
 
     @staticmethod
-    def XOR():
-        a, b = ASM.POP(), ASM.POP()
-        ASM.PUSH(a ^ b)
-        # INTERP.NEXT()
+    def xor():
+        a, b = Asm.pop(), Asm.pop()
+        Asm.push(a ^ b)
 
     @staticmethod
-    def INV():
-        ASM.PUSH(-ASM.POP())
-        # INTERP.NEXT()
+    def inv():
+        Asm.push(-Asm.pop())
 
 
-class STACK:
+class Stack:
     @staticmethod
-    def TOR():
-        _return_stack.append(ASM.POP())
-        # INTERP.NEXT()
+    def tor():
+        _return_stack.append(Asm.pop())
 
     @staticmethod
-    def RTO():
-        ASM.PUSH(_return_stack.pop())
-        # INTERP.NEXT()
+    def rto():
+        Asm.push(_return_stack.pop())
 
     @staticmethod
-    def RSPAT():
-        ASM.PUSH(_return_stack[-1])
-        # INTERP.NEXT()
+    def rspat():
+        Asm.push(_return_stack[-1])
 
     @staticmethod
-    def RSTOR():
-        _return_stack.append(ASM.POP())
-        # INTERP.NEXT()
+    def rstor():
+        _return_stack.append(Asm.pop())
 
     @staticmethod
-    def RDROP():
+    def rdrop():
         _return_stack.pop()
-        # INTERP.NEXT()
 
     @staticmethod
-    def DSPAT():
+    def dspat():
         # mov %esp,%eax
         # push %eax
         print("TODO: DSPAT")
-        # INTERP.NEXT()
 
     @staticmethod
-    def DSPSTOR():
+    def dspstor():
         # pop %esp
         print("TODO: DSPAT")
-        INTERP.NEXT()
 
 
-class MEMORY:
+class Memory:
     @staticmethod
-    def STOR():
-        ebx = ASM.POP()                 # address to store at
-        eax = ASM.POP()                 # data to store there
+    def stor():
+        ebx = Asm.pop()                 # address to store at
+        eax = Asm.pop()                 # data to store there
         _dictionary[ebx] = eax          # store it
-        # INTERP.NEXT()
 
     @staticmethod
-    def FETCH():
+    def fetch():
         global eax, ebx
-        ebx = ASM.POP()             # address to fetch
+        ebx = Asm.pop()             # address to fetch
         eax = _dictionary[ebx]      # fetch it
-        ASM.PUSH(eax)               # push value onto stack
-        # INTERP.NEXT()
+        Asm.push(eax)               # push value onto stack
 
     @staticmethod
-    def PSTOR():
+    def pstor():
         global eax, ebx
-        ebx = ASM.POP()             # address
-        eax = ASM.POP()             # the amount to add
+        ebx = Asm.pop()             # address
+        eax = Asm.pop()             # the amount to add
         _dictionary[ebx] += eax
-        # INTERP.NEXT()
 
     @staticmethod
-    def MSTOR():
+    def mstor():
         global eax, ebx
-        ebx = ASM.POP()             # address
-        eax = ASM.POP()             # the amount to add
+        ebx = Asm.pop()             # address
+        eax = Asm.pop()             # the amount to add
         _dictionary[ebx] -= eax
-        # INTERP.NEXT()
 
     @staticmethod
-    def CSTOR():
+    def cstor():
         # pop %ebx                // address to store at
         # pop %eax                // data to store there
         # movb %al,(%ebx)         // store it
-        # INTERP.NEXT()
         pass
 
     @staticmethod
-    def CAT():
+    def cat():
         # pop %ebx                // address to fetch
         # xor %eax,%eax
         # movb (%ebx),%al         // fetch it
         # push %eax               // push value onto stack
-        # INTERP.NEXT()
         pass
 
     # #(/* C@C! is a useful byte copy primitive. */
@@ -871,25 +775,23 @@ class MEMORY:
             # stosb                   // copy to destination
             # push %edi               // increment destination address
             # incl 4(%esp)            // increment source address
-            # INTERP.NEXT")
+            # Interp.next")
 
     @staticmethod
-    def CMOVE():
+    def cmove():
         # mov %esi,%edx           // preserve %esi
         # pop %ecx                // length
         # pop %edi                // destination address
         # pop %esi                // source address
         # rep movsb               // copy source to destination
         # mov %edx,%esi           // restore %esi
-        # INTERP.NEXT()
         pass
 
 
 # --- VARIABLES ---
 # hard coded to point to end of _dictionary
-defvar("HERE", 4, 360)
-# defvar("LATEST", 6, 356)
-defcode("LATEST", 6, lambda: ASM.PUSH(_vars["LATEST"]))
+defvar("HERE", 4, lambda: Asm.push(_vars["HERE"]))
+defcode("LATEST", 6, lambda: Asm.push(_vars["LATEST"]))
 defvar("STATE", 5, 0)
 defvar("S0", 2, "SZ")
 defvar("BASE", 4, 10)
@@ -898,100 +800,100 @@ defvar("BASE", 4, 10)
 # --- CONSTANTS ---
 defconst("VERSION", 7, "JONES_VERSION")
 defconst("R0", 2, "return_stack_top")
-defconst("DOCOL", 5, INTERP.DOCOL)
+defconst("DOCOL", 5, Interp.docol)
 defconst("F_IMMED", 7, F_IMMED)
 defconst("F_HIDDEN", 8, F_HIDDEN)
 defconst("F_LENMASK", 9, F_LENMASK)
 
 
 # --- MEMORY ---
-defcode("!", 1, MEMORY.STOR)
-defcode("@", 5, MEMORY.FETCH)
-defcode("+!", 2, MEMORY.PSTOR)
-defcode("-!", 2, MEMORY.MSTOR)
-defcode("C!", 2, MEMORY.CSTOR)
-defcode("C@", 2, MEMORY.CAT)
+defcode("!", 1, Memory.stor)
+defcode("@", 5, Memory.fetch)
+defcode("+!", 2, Memory.pstor)
+defcode("-!", 2, Memory.mstor)
+defcode("C!", 2, Memory.cstor)
+defcode("C@", 2, Memory.cat)
 # c@c! is a useful byte copy primitive.
 # defcode("C@C!", 4, MEMORY.)
 # and CMOVE is a block copy operation.
-defcode("CMOVE", 5, MEMORY.CMOVE)
+defcode("CMOVE", 5, Memory.cmove)
 
 
-defcode("EXIT", 4, INTERP.EXIT)
-defcode("LIT", 3, INTERP.LIT)
-defcode("KEY", 3, INTERP.KEY)
-defcode("WORD", 4, INTERP.WORD)
-defcode("EMIT", 4, INTERP.EMIT)
-defcode("FIND", 4, INTERP.FIND)
-defcode(">CFA", 4, INTERP.TCFA)
-defword(">DFA", 4, INTERP.TDFA)
-defcode("CREATE", 6, INTERP.CREATE)
-defcode(",", 1, INTERP.COMMA)
-defcode("[", 1, INTERP.LBRAC, flags=F_IMMED)
-defcode("]", 1, INTERP.RBRAC)
-defcode("IMMEDIATE", 9, INTERP.IMMEDIATE, flags=F_IMMED)
-defcode("HIDDEN", 6, INTERP.HIDDEN)
-defcode("BRANCH", 6, INTERP.BRANCH)
-defcode("0BRANCH", 7, INTERP.ZBRANCH)
-defcode("LITSTRING", 9, INTERP.LITSTRING)
-defcode("TELL", 4, INTERP.TELL)
-defcode("INTERPRET", 9, INTERP.INTERPRET)
-defcode("CHAR", 4, INTERP.CHAR)
-defcode("EXECUTE", 7, INTERP.EXECUTE)
-defword("HIDE", 4, INTERP.HIDE)
-defword(":", 1, INTERP.COLON)
-defword(";", 1, INTERP.SEMICOLON, flags=F_IMMED)
+defcode("EXIT", 4, Interp.exit)
+defcode("LIT", 3, Interp.lit)
+defcode("KEY", 3, Interp.key)
+defcode("WORD", 4, Interp.word)
+defcode("EMIT", 4, Interp.emit)
+defcode("FIND", 4, Interp.find)
+defcode(">CFA", 4, Interp.tcfa)
+defword(">DFA", 4, Interp.tdfa)
+defcode("CREATE", 6, Interp.create)
+defcode(",", 1, Interp.comma)
+defcode("[", 1, Interp.lbrac, flags=F_IMMED)
+defcode("]", 1, Interp.rbrac)
+defcode("IMMEDIATE", 9, Interp.immediate, flags=F_IMMED)
+defcode("HIDDEN", 6, Interp.hidden)
+defcode("BRANCH", 6, Interp.branch)
+defcode("0BRANCH", 7, Interp.zbranch)
+defcode("LITSTRING", 9, Interp.litstring)
+defcode("TELL", 4, Interp.tell)
+defcode("InterpRET", 9, Interp.interpret)
+defcode("CHAR", 4, Interp.char)
+defcode("EXECUTE", 7, Interp.execute)
+defword("HIDE", 4, Interp.hide)
+defword(":", 1, Interp.colon)
+defword(";", 1, Interp.semicolon, flags=F_IMMED)
 
 
 # --- MANIPULATORS ---
-defcode("DROP", 4, MANIPULATORS.DROP)
-defcode("SWAP", 4, MANIPULATORS.SWAP)
-defcode("DUP", 3, MANIPULATORS.DUP)
-defcode("OVER", 4, MANIPULATORS.OVER)
-defcode("ROT", 3, MANIPULATORS.ROT)
-defcode("-ROT", 4, MANIPULATORS.INVROT)
-defcode("2DUP", 4, MANIPULATORS.DDUP)
-defcode("2DROP", 5, MANIPULATORS.DDROP)
-defcode("2SWAP", 5, MANIPULATORS.DSWAP)
-defcode("?DUP", 4, MANIPULATORS.QDUP)
-defcode("1+", 2, MANIPULATORS.ONEP)
-defcode("1-", 2, MANIPULATORS.ONEM)
+defcode("DROP", 4, Manipulators.drop)
+defcode("SWAP", 4, Manipulators.swap)
+defcode("DUP", 3, Manipulators.dup)
+defcode("OVER", 4, Manipulators.over)
+defcode("ROT", 3, Manipulators.rot)
+defcode("-ROT", 4, Manipulators.invrot)
+defcode("2DUP", 4, Manipulators.ddup)
+defcode("2DROP", 5, Manipulators.ddrop)
+defcode("2SWAP", 5, Manipulators.dswap)
+defcode("?DUP", 4, Manipulators.qdup)
+defcode("1+", 2, Manipulators.onep)
+defcode("1-", 2, Manipulators.onem)
 # defcode("4+", 2, "
         # addl $4,(%esp)          // add 4 to top of stack
-        # INTERP.NEXT")
+        # Interp.NEXT")
 # defcode("4-", 2, "
         # subl $4,(%esp)          // subtract 4 from top of stack
-        # INTERP.NEXT")
-defcode("+", 1, MANIPULATORS.PLUS)
-defcode("-", 1, MANIPULATORS.SUB)
-defcode("*", 1, MANIPULATORS.MUL)
-defcode("/MOD", 4, MANIPULATORS.DIVMOD)
-defcode("=", 1, MANIPULATORS.EQUAL)
-defcode("<>", 2, MANIPULATORS.NEQ)
-defcode("<", 1, MANIPULATORS.LT)
-defcode(">", 1, MANIPULATORS.GT)
-defcode("<=", 2, MANIPULATORS.LEQ)
-defcode(">=", 2, MANIPULATORS.GEQ)
-defcode("0=", 2, MANIPULATORS.ZEQ)
-defcode("0<>", 3, MANIPULATORS.ZNEQ)
-defcode("0<", 2, MANIPULATORS.ZLT)
-defcode("0>", 2, MANIPULATORS.ZGT)
-defcode("0<=", 3, MANIPULATORS.ZLEQ)
-defcode("0>=", 3, MANIPULATORS.ZGEQ)
-defcode("AND", 3, MANIPULATORS.AND)
-defcode("OR", 2, MANIPULATORS.OR)
-defcode("XOR", 3, MANIPULATORS.XOR)
-defcode("INVERT", 6, MANIPULATORS.INV)
+        # Interp.NEXT")
+defcode("+", 1, Manipulators.plus)
+defcode("-", 1, Manipulators.sub)
+defcode("*", 1, Manipulators.mul)
+defcode("/MOD", 4, Manipulators.divmod)
+defcode("=", 1, Manipulators.equal)
+defcode("<>", 2, Manipulators.neq)
+defcode("<", 1, Manipulators.lt)
+defcode(">", 1, Manipulators.gt)
+defcode("<=", 2, Manipulators.leq)
+defcode(">=", 2, Manipulators.geq)
+defcode("0=", 2, Manipulators.zeq)
+defcode("0<>", 3, Manipulators.zneq)
+defcode("0<", 2, Manipulators.zlt)
+defcode("0>", 2, Manipulators.zgt)
+defcode("0<=", 3, Manipulators.zleq)
+defcode("0>=", 3, Manipulators.zgeq)
+defcode("AND", 3, Manipulators.and_)
+defcode("OR", 2, Manipulators.or_)
+defcode("XOR", 3, Manipulators.xor)
+defcode("INVERT", 6, Manipulators.inv)
 
 
 # --- STACK ---
-defcode(">R", 2, STACK.TOR)
-defcode("R>", 2, STACK.RTO)
-defcode("RSP@", 4, STACK.RSPAT)
-defcode("RSP!", 4, STACK.RSTOR)
-defcode("RDROP", 5, STACK.RDROP)
-defcode("DSP@", 4, STACK.DSPAT)
-defcode("DSP!", 4, STACK.DSPSTOR)
+defcode(">R", 2, Stack.tor)
+defcode("R>", 2, Stack.rto)
+defcode("RSP@", 4, Stack.rspat)
+defcode("RSP!", 4, Stack.rstor)
+defcode("RDROP", 5, Stack.rdrop)
+defcode("DSP@", 4, Stack.dspat)
+defcode("DSP!", 4, Stack.dspstor)
 
 
 # defconst("SYS_EXIT", 8, "__NR_exit")
