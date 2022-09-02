@@ -122,17 +122,18 @@ class Interp:
                 break
 
         # save push word address and length
-        return len(Interp.word_buffer), Interp.word_buffer
+        return Interp.word_buffer
 
     @staticmethod
     def word():
-        len_, word = Interp._word()
+        word = Interp._word()
         Asm.push(word)
-        Asm.push(len_)
 
     @staticmethod
-    def _number(word, len_):
-        if len_ == 0:
+    def _number(word):
+        if word in ['', []]:
+            import pdb; pdb.set_trace()  # noqa
+            print("which empty word")
             return None, None
 
         unparsed = 0
@@ -156,11 +157,10 @@ class Interp:
     @staticmethod
     def number():
         # TODO: is this needed?
-        len_ = Asm.pop()
         # Interp.word_buffer = [Asm.pop() for _ in range(len_)]
-        word = [Asm.pop() for _ in range(len_)]
+        word = Asm.pop()
 
-        found, errors = Interp._number(word, len_)
+        found, errors = Interp._number(word)
 
         # push parsed numbers and number of unparsed chars
         Asm.push(found)
@@ -179,7 +179,6 @@ class Interp:
 
     @staticmethod
     def find():
-        len_ = Asm.pop()  # noqa
         word = Asm.pop()
 
         addr = Interp._find(word)
@@ -206,13 +205,13 @@ class Interp:
 
     @staticmethod
     def create():
-        len_, name = Interp._word()
+        name = Interp._word()
 
         # store latest as link
         _dictionary.append(_vars["LATEST"])
 
         # store word header
-        _dictionary.extend([len_, ''.join(map(chr, name)).upper()])
+        _dictionary.extend([len(name), ''.join(map(chr, name)).upper()])
 
         # update latest/here
         _vars["LATEST"], _vars["HERE"] = _vars["HERE"], len(_dictionary)
@@ -284,7 +283,7 @@ class Interp:
 
     @staticmethod
     def tick():
-        len_, name = Interp._word()
+        name = Interp._word()
         addr = Interp._w2a(''.join(map(chr, name)))
         Asm.push(addr)
 
@@ -328,11 +327,11 @@ class Interp:
         print(''.join(map(chr, word)))
 
     @staticmethod
-    def interpret_1(word, len_):
+    def interpret_1(word):
         # not in dict or a word, assume it's literal
         Interp.interpret_is_lit = 1
         raw_word = word
-        word, errors = Interp._number(raw_word, len_)
+        word, errors = Interp._number(raw_word)
         if errors:
             Interp.interpret_6(raw_word)
         elif word is not None:
@@ -388,7 +387,7 @@ class Interp:
     @staticmethod
     def interpret():
         global esi
-        len_, word = Interp._word()
+        word = Interp._word()
         Interp.interpret_is_lit = 0
         addr = Interp._find(word)
         if addr is not None:
@@ -399,7 +398,7 @@ class Interp:
             else:
                 Interp.interpret_2(tcfa)
         else:
-            addr = Interp.interpret_1(word, len_)
+            addr = Interp.interpret_1(word)
             Interp.interpret_2(addr)
 
     @staticmethod
@@ -410,7 +409,7 @@ class Interp:
 
     @staticmethod
     def char():
-        len_, name = Interp._word()
+        name = Interp._word()
         Asm.push(name[0])
 
     @staticmethod
