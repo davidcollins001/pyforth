@@ -7,8 +7,8 @@ _data_stack = []
 _return_stack = []
 _dictionary = []
 
-_vars = {"LATEST": None, "HERE": 0, "STATE": 0, "BASE": 10}
-_const = {}
+_vars = {"LATEST": 7, "HERE": 3, "STATE": 11, "BASE": 19}
+_link = None
 
 esi = 0
 
@@ -23,32 +23,32 @@ def _start():
     Interp.quit()
 
 
-def defword(name, namelen, code, flags=0):
-    # link is start of previous entry in _dictionary
-    link, _vars["LATEST"] = _vars["LATEST"], _vars["HERE"]
-    _dictionary.extend([link, flags + namelen, name.upper(), Interp.docol])
-    # add number of commands and commands to run to _dictionary
-    _dictionary.extend(code())
-    _vars["HERE"] = len(_dictionary)
-
-
 def defcode(name, namelen, code, flags=0):
+    global _link
     # link is start of previous entry in _dictionary
-    link, _vars["LATEST"] = _vars["LATEST"], _vars["HERE"]
+    link, _link = _link, len(_dictionary)
     _dictionary.extend([link, flags + namelen, name.upper()])
-    _dictionary.append(code)
-    _vars["HERE"] = len(_dictionary)
+    if isinstance(code, list):
+        _dictionary.extend(code)
+    else:
+        _dictionary.append(code)
+    if len(_dictionary) > _vars["LATEST"]:
+        _dictionary[_vars["LATEST"]] = _link
+        _dictionary[_vars["HERE"]] = len(_dictionary)
+
+
+def defword(name, namelen, code, flags=0):
+    defcode(name, namelen, [Interp.docol] + code(), flags)
 
 
 def defvar(name, namelen, initial=0, flags=0):
-    _vars[name.upper()] = initial
-    defcode(name, namelen, lambda: Asm.push(_vars[name.upper()]), flags)
+    defcode(name, namelen, initial, flags)
 
 
 def defconst(name, namelen, value, flags=0):
-    _const[name.upper()] = value
-    here = _vars["HERE"]
-    defcode(name, namelen, lambda: Asm.push(_dictionary[here + 2]), flags)
+    defword(name, namelen,
+            lambda: [Interp._w2a("LIT"), value, Interp._w2a("EXIT")],
+            flags)
 
 
 # --- code for builtin forth words ---
@@ -111,7 +111,7 @@ class Interp:
         Interp.word_buffer = []
         while True:
             key = Interp._key()
-            # start of comment
+            # start of comment in user input
             if key == ord('\\'):
                 # ignore everything to end of line
                 while key != ord('\n'):
@@ -131,14 +131,9 @@ class Interp:
 
     @staticmethod
     def _number(word):
-        if word in ['', []]:
-            import pdb; pdb.set_trace()  # noqa
-            print("which empty word")
-            return None, None
-
         unparsed = 0
         parsed = 0
-        base = _vars["BASE"]
+        base = _dictionary[_vars["BASE"]]
         neg = 1
 
         # check for first char being -
@@ -169,7 +164,7 @@ class Interp:
     @staticmethod
     def _find(word):
         word = ''.join(map(chr, word)).upper()
-        ndx = _vars["LATEST"]
+        ndx = _dictionary[_vars["LATEST"]]
         while ndx is not None:
             flags = _dictionary[ndx + 1]
             if word == _dictionary[ndx + 2] and not flags & F_HIDDEN:
@@ -180,9 +175,7 @@ class Interp:
     @staticmethod
     def find():
         word = Asm.pop()
-
         addr = Interp._find(word)
-
         Asm.push(addr)
 
     @staticmethod
@@ -208,19 +201,20 @@ class Interp:
         name = Interp._word()
 
         # store latest as link
-        _dictionary.append(_vars["LATEST"])
+        _dictionary.append(_dictionary[_vars["LATEST"]])
 
         # store word header
         _dictionary.extend([len(name), ''.join(map(chr, name)).upper()])
 
         # update latest/here
-        _vars["LATEST"], _vars["HERE"] = _vars["HERE"], len(_dictionary)
+        _dictionary[_vars["LATEST"]] = _dictionary[_vars["HERE"]]
+        _dictionary[_vars["HERE"]] = len(_dictionary)
 
     @staticmethod
     def _comma(word):
         # append data to _dictionary and update HERE
         _dictionary.append(word)
-        _vars["HERE"] = len(_dictionary)
+        _dictionary[_vars["HERE"]] = len(_dictionary)
 
     @staticmethod
     def comma():
@@ -229,11 +223,11 @@ class Interp:
 
     @staticmethod
     def rbrac():
-        _vars["STATE"] = 1
+        _dictionary[_vars["STATE"]] = 1
 
     @staticmethod
     def lbrac():
-        _vars["STATE"] = 0
+        _dictionary[_vars["STATE"]] = 0
 
     def _w2a(w):
         # convert word string to address in _dictionary
@@ -268,13 +262,13 @@ class Interp:
 
     @staticmethod
     def immediate():
-        latest = _vars["LATEST"]
+        latest = _dictionary[_vars["LATEST"]]
         _dictionary[latest + 1] |= F_IMMED
 
     @staticmethod
     def hidden():
         ndx = Asm.pop()
-        _dictionary[ndx + 1] ^= F_HIDDEN
+        _dictionary[_dictionary[ndx] + 1] ^= F_HIDDEN
 
     @staticmethod
     def hide():
@@ -339,7 +333,7 @@ class Interp:
 
     @staticmethod
     def interpret_2(addr):
-        state = _vars["STATE"]
+        state = _dictionary[_vars["STATE"]]
         if state:
             if Interp.interpret_is_lit:
                 Interp._comma(Interp._w2a("LIT"))
@@ -388,18 +382,19 @@ class Interp:
     def interpret():
         global esi
         word = Interp._word()
-        Interp.interpret_is_lit = 0
-        addr = Interp._find(word)
-        if addr is not None:
-            tcfa = Interp._tcfa(addr)
-            esi = tcfa
-            if _dictionary[addr + 1] & F_IMMED:
-                Interp.interpret_4(tcfa)
+        if word:
+            Interp.interpret_is_lit = 0
+            addr = Interp._find(word)
+            if addr is not None:
+                tcfa = Interp._tcfa(addr)
+                esi = tcfa
+                if _dictionary[addr + 1] & F_IMMED:
+                    Interp.interpret_4(tcfa)
+                else:
+                    Interp.interpret_2(tcfa)
             else:
-                Interp.interpret_2(tcfa)
-        else:
-            addr = Interp.interpret_1(word)
-            Interp.interpret_2(addr)
+                addr = Interp.interpret_1(word)
+                Interp.interpret_2(addr)
 
     @staticmethod
     def quit():
@@ -556,7 +551,7 @@ class Manipulators:
     @staticmethod
     def divmod():
         a, b = Asm.pop(), Asm.pop()
-        Asm.push(divmod(a, b))
+        [Asm.push(v) for v in divmod(a, b)]
 
     @staticmethod
     def equal():
@@ -734,20 +729,11 @@ class Memory:
 
 # --- VARIABLES ---
 # hard coded to point to end of _dictionary
-defvar("HERE", 4, _vars["HERE"])
-defvar("LATEST", 6, _vars["LATEST"])
-defvar("STATE", 5, _vars["STATE"])
-defvar("S0", 2, "SZ")
+defvar("HERE", 4, 0)
+defvar("LATEST", 6, 0)
+defvar("STATE", 5, 0)
+defvar("S0", 2, 0)
 defvar("BASE", 4, 10)
-
-
-# --- CONSTANTS ---
-defconst("VERSION", 7, "JONES_VERSION")
-defconst("R0", 2, "return_stack_top")
-defconst("DOCOL", 5, Interp.docol)
-defconst("F_IMMED", 7, F_IMMED)
-defconst("F_HIDDEN", 8, F_HIDDEN)
-defconst("F_LENMASK", 9, F_LENMASK)
 
 
 # --- MANIPULATORS ---
@@ -840,6 +826,15 @@ defcode("R!", 4, Stack.rstor)
 defcode("RDROP", 5, Stack.rdrop)
 defcode("DSP@", 4, Stack.dspat)
 defcode("DSP!", 4, Stack.dspstor)
+
+
+# --- CONSTANTS ---
+defconst("VERSION", 7, "JONES_VERSION")
+defconst("R0", 2, 0)
+defconst("DOCOL", 5, Interp.docol)
+defconst("F_IMMED", 7, F_IMMED)
+defconst("F_HIDDEN", 8, F_HIDDEN)
+defconst("F_LENMASK", 9, F_LENMASK)
 
 
 # defconst("SYS_EXIT", 8, "__NR_exit")
