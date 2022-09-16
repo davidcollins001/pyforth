@@ -295,8 +295,11 @@ class Interp:
     @staticmethod
     def branch():
         global esi
-        # jump LIT instruction to get offset
-        esi += _dictionary[esi + 2]
+        # if offset was literal jump  LIT instruction to get offset
+        offset = _dictionary[esi + 1]
+        offset = 2 if _dictionary[offset] == Interp.lit else 1
+        offset = _dictionary[esi + offset] + offset
+        esi += offset
 
     @staticmethod
     def zbranch():

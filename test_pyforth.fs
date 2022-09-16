@@ -22,3 +22,11 @@ drop drop
 : c ' 1+ ;
 c
 .s  \ exp: [87 87]
+drop drop
+
+\ jump back 3 + 2 added in `branch` to skip offset
+: a dup swap 1- ;
+: b a dup 0= 0branch -6 ;
+4 b
+.s  \ exp: [4, 3, 2, 1, 0]
+drop drop drop drop drop
