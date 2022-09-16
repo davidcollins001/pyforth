@@ -109,15 +109,18 @@ class Interp:
     @staticmethod
     def _word():
         Interp.word_buffer = []
+        last_key = None
         while True:
             key = Interp._key()
+            # TODO: capture \ with space after
             # start of comment in user input
-            if key == ord('\\'):
+            if key == ord('\\') and (last_key is None or last_key < ord(' ')):
                 # ignore everything to end of line
                 while key != ord('\n'):
                     key = Interp._key()
             elif key > ord(' '):
                 Interp.word_buffer.append(key)
+                last_key = key
             else:
                 break
 
@@ -277,8 +280,16 @@ class Interp:
 
     @staticmethod
     def tick():
-        name = Interp._word()
-        addr = Interp._w2a(''.join(map(chr, name)))
+        # because this isn't running on a proper stack machine esi will be this
+        # word and doing Asm.lodsl() on it will get the next word in the
+        # dictionary and not the next command to run, so use Interp._word() to
+        # get the next word if this is being run in the interpreter
+        if _dictionary[esi] == Interp.tick:
+            name = Interp._word()
+            addr = Interp._w2a(''.join(map(chr, name)))
+        else:
+            Asm.lodsl()
+            addr = _dictionary[esi]
         Asm.push(addr)
 
     @staticmethod
