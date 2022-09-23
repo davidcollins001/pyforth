@@ -6,6 +6,7 @@ import sys
 _data_stack = []
 _return_stack = []
 _dictionary = []
+_stream = sys.stdin
 
 _vars = {"LATEST": 7, "HERE": 3, "STATE": 11, "BASE": 19}
 _link = None
@@ -21,6 +22,19 @@ def _start():
     global esi
     esi = 0
     Interp.quit()
+
+
+# TODO: move into Interp?
+def _load_core():
+    global _stream
+    try:
+        with open("core.fs") as f:
+            _stream = f
+            while True:
+                Interp.interpret(f)
+    except StopIteration:
+        _stream = sys.stdin
+        pass
 
 
 def defcode(name, namelen, code, flags=0):
@@ -85,19 +99,17 @@ class Interp:
         Asm.push(_dictionary[esi])
 
     @staticmethod
-    def _key():
+    def _key(stream=sys.stdin):
         if not Interp.input_buffer:
-            input_buffer = sys.stdin.readline()
-            if input_buffer == '':
-                exit()
+            input_buffer = next(stream)
             Interp.input_buffer = list(map(ord, input_buffer))
-            return Interp._key()
+            return Interp._key(stream)
         else:
             return Interp.input_buffer.pop(0)
 
     @staticmethod
     def key():
-        value = Interp._key()
+        value = Interp._key(stream=_stream)
         Asm.push(value)
 
     @staticmethod
@@ -107,17 +119,17 @@ class Interp:
             print(chr(char), end="")
 
     @staticmethod
-    def _word():
+    def _word(stream=sys.stdin):
         Interp.word_buffer = []
         last_key = None
         while True:
-            key = Interp._key()
+            key = Interp._key(stream)
             # TODO: capture \ with space after
             # start of comment in user input
             if key == ord('\\') and (last_key is None or last_key < ord(' ')):
                 # ignore everything to end of line
                 while key != ord('\n'):
-                    key = Interp._key()
+                    key = Interp._key(stream)
             elif key > ord(' '):
                 Interp.word_buffer.append(key)
                 last_key = key
@@ -295,10 +307,10 @@ class Interp:
     @staticmethod
     def branch():
         global esi
-        # if offset was literal jump  LIT instruction to get offset
+        # if offset was literal, jump  LIT instruction to get offset
         offset = _dictionary[esi + 1]
         offset = 2 if _dictionary[offset] == Interp.lit else 1
-        offset = _dictionary[esi + offset] + offset
+        offset = _dictionary[esi + offset] + offset if offset > 0 else 0
         esi += offset
 
     @staticmethod
@@ -307,7 +319,9 @@ class Interp:
         cond = Asm.pop()
         if cond:
             Asm.lodsl()
-            Asm.lodsl()
+            # if offset was literal jump  LIT instruction too
+            if _dictionary[esi] == Interp.lit:
+                Asm.lodsl()
         else:
             Interp.branch()
 
@@ -393,9 +407,9 @@ class Interp:
         pass
 
     @staticmethod
-    def interpret():
+    def interpret(stream=sys.stdin):
         global esi
-        word = Interp._word()
+        word = Interp._word(stream)
         if word:
             Interp.interpret_is_lit = 0
             addr = Interp._find(word)
@@ -872,8 +886,10 @@ defconst("F_LENMASK", 9, F_LENMASK)
 # --- TESTING---
 
 
-defcode(".S", 2, lambda: print(_data_stack))
-defcode(".R", 2, lambda: print(_return_stack))
+defcode(".DS", 2, lambda: print(_data_stack))
+defcode(".RS", 2, lambda: print(_return_stack))
 defcode(".dict", 5, lambda: print(_dictionary))
 
+
+_load_core()
 _start()
