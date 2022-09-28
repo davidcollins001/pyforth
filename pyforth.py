@@ -3,15 +3,16 @@
 
 import sys
 
-_data_stack = []
-_return_stack = []
-_dictionary = []
+_s0 = 0
+_r0 = 20
+_dsp = _s0
+_rsp = _r0
+_dictionary = 2 * 20 * [None]
+esi = None
+
 _stream = sys.stdin
-
-_vars = {"LATEST": 7, "HERE": 3, "STATE": 11, "BASE": 19}
+_vars = {"LATEST": 47, "HERE": 43, "STATE": 51, "BASE": 59}
 _link = None
-
-esi = 0
 
 F_IMMED = 0x80
 F_HIDDEN = 0x20
@@ -20,7 +21,7 @@ F_LENMASK = 0x1f
 
 def _start():
     global esi
-    esi = 0
+    esi = len(_dictionary)
     Interp.quit()
 
 
@@ -320,7 +321,7 @@ class Interp:
         if cond:
             Asm.lodsl()
             # if offset was literal jump  LIT instruction too
-            if _dictionary[esi] == Interp.lit:
+            if _dictionary[_dictionary[esi]] == Interp.lit:
                 Asm.lodsl()
         else:
             Interp.branch()
@@ -394,12 +395,13 @@ class Interp:
             Asm.push(literal)
         else:
             import pdb; pdb.set_trace()  # noqa
+            print(">>>> interp error")
 
     @staticmethod
     def interpret_6(word):
-        global _data_stack
+        global _dsp
         print(f"PARSE ERROR: {''.join(list(map(chr, word)))}")
-        _data_stack = []
+        _dsp = _s0
 
     @staticmethod
     def interpret_7():
@@ -444,37 +446,47 @@ class Interp:
 class Asm:
     @staticmethod
     def push(reg):
-        _data_stack.append(reg)
+        global _dsp
+        _dictionary[_dsp] = reg
+        _dsp += 1
 
     @staticmethod
     def pop():
-        try:
-            return _data_stack.pop()
-        except Exception as e:
-            print(f"ERROR: {e}")
+        global _dsp
+        if _dsp > 0:
+            _dsp -= 1
+            return _dictionary[_dsp]
+        else:
+            _dsp = 0
+            print("ERROR: stack underflow")
 
     @staticmethod
     def read(ndx):
         try:
-            return _data_stack[ndx]
+            return _dsp[ndx]
         except Exception as e:
             print(f"ERROR: {e}")
 
     @staticmethod
     def pushrsp(reg):
-        _return_stack.append(reg)
+        global _rsp
+        _dictionary[_rsp] = reg
+        _rsp += 1
 
     @staticmethod
     def poprsp():
+        global _rsp
         try:
-            return _return_stack.pop()
-        except Exception as e:
-            print(f"ERROR: {e}")
+            _rsp -= 1
+            return _dictionary[_rsp]
+        except Exception:
+            _rsp = 0
+            print("ERROR: return stack underflow")
 
     @staticmethod
     def readrsp(ndx):
         try:
-            return _return_stack[ndx]
+            return _rsp[ndx]
         except Exception as e:
             print(f"ERROR: {e}")
 
@@ -501,14 +513,14 @@ class Manipulators:
     @staticmethod
     def dup():
         try:
-            Asm.push(_data_stack[-1])
+            Asm.push(_dictionary[_dsp - 1])
         except Exception as e:
             print(f"ERROR: {e}")
 
     @staticmethod
     def over():
         try:
-            Asm.push(_data_stack[-2])
+            Asm.push(_dictionary[_dsp - 2])
         except Exception as e:
             print(f"ERROR: {e}")
 
@@ -542,7 +554,8 @@ class Manipulators:
     @staticmethod
     def ddup():
         try:
-            _data_stack.extend(_data_stack[-2:])
+            Asm.push(_dictionary[_dsp - 2])
+            Asm.push(_dictionary[_dsp - 2])
         except Exception as e:
             print(f"ERROR: {e}")
 
@@ -668,15 +681,16 @@ class Stack:
 
     @staticmethod
     def rto():
-        Asm.pushrsp(Asm.pop())
+        Asm.push(Asm.poprsp())
 
     @staticmethod
     def rspat():
-        Asm.push(Asm.readrsp(-1))
+        Asm.push(_rsp)
 
     @staticmethod
     def rstor():
-        Asm.pushrsp(Asm.pop())
+        global _rsp
+        _rsp = Asm.pop()
 
     @staticmethod
     def rdrop():
@@ -686,12 +700,13 @@ class Stack:
     def dspat():
         # mov %esp,%eax
         # push %eax
-        print("TODO: DSPAT")
+        Asm.push(_dsp)
 
     @staticmethod
     def dspstor():
         # pop %esp
-        print("TODO: DSPAT")
+        global _dsp
+        _dsp = Asm.pop()
 
 
 class Memory:
@@ -849,8 +864,8 @@ defword(";", 1, Interp.semicolon, flags=F_IMMED)
 # --- STACK ---
 defcode(">R", 2, Stack.tor)
 defcode("R>", 2, Stack.rto)
-defcode("R@", 4, Stack.rspat)
-defcode("R!", 4, Stack.rstor)
+defcode("RSP@", 4, Stack.rspat)
+defcode("RSP!", 4, Stack.rstor)
 defcode("RDROP", 5, Stack.rdrop)
 defcode("DSP@", 4, Stack.dspat)
 defcode("DSP!", 4, Stack.dspstor)
@@ -886,8 +901,8 @@ defconst("F_LENMASK", 9, F_LENMASK)
 # --- TESTING---
 
 
-defcode(".DS", 2, lambda: print(_data_stack))
-defcode(".RS", 2, lambda: print(_return_stack))
+defcode(".DS", 2, lambda: print(_dictionary[_s0: _dsp]))
+defcode(".RS", 2, lambda: print(_dictionary[_r0: _rsp]))
 defcode(".dict", 5, lambda: print(_dictionary))
 
 
