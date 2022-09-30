@@ -7,16 +7,28 @@ _s0 = 0
 _r0 = 20
 _dsp = _s0
 _rsp = _r0
-_dictionary = 2 * 20 * [None]
+_link = None
+_stack_size = 20
+_dict_size = 2 * _stack_size
+_dictionary = _dict_size * [None]
 esi = None
 
 _stream = sys.stdin
-_vars = {"LATEST": 47, "HERE": 43, "STATE": 51, "BASE": 59}
-_link = None
 
 F_IMMED = 0x80
 F_HIDDEN = 0x20
-F_LENMASK = 0x1f
+F_LENMASK = 0x1F
+
+
+def _var_loc(n):
+    return _dict_size + 2 * n + 1
+
+
+_vars = {"LATEST": _var_loc(3),
+         "HERE": _var_loc(1),
+         "STATE": _var_loc(5),
+         "BASE": _var_loc(7),
+         "S0": _var_loc(9)}
 
 
 def _start():
@@ -116,8 +128,13 @@ class Interp:
     @staticmethod
     def emit():
         char = Asm.pop()
-        if char:
-            print(chr(char), end="")
+        if isinstance(char, int):
+            if char:
+                print(chr(char), end="")
+                sys.stdout.flush()
+        else:
+            print(char, end="")
+            sys.stdout.flush()
 
     @staticmethod
     def _word(stream=sys.stdin):
@@ -192,7 +209,8 @@ class Interp:
     def find():
         word = Asm.pop()
         addr = Interp._find(word)
-        Asm.push(addr)
+        if addr:
+            Asm.push(addr)
 
     @staticmethod
     def _tcfa(addr):
@@ -337,17 +355,22 @@ class Interp:
         # addl %eax,%esi          // skip past the string
         # addl $3,%esi            // but round up to next 4 byte boundary
         # andl $~3,%esi
-        Asm.push(_dictionary[esi])
-        # TODO: get length
-        length = 1
+        Asm.push(esi)
+        length = _dictionary[esi]
         Asm.push(length)
         esi += length
 
     @staticmethod
     def tell():
-        Asm.pop()  # length
-        word = Asm.pop()
-        print(''.join(map(chr, word)))
+        # Asm.pop()  # length
+        # word = Asm.pop()
+        # print(''.join(map(chr, word)))
+        length = Asm.pop()
+        addr = Asm.pop()
+        for _ in range(length):
+            addr += 1
+            print(chr(_dictionary[addr]), end='')
+            sys.stdout.flush()
 
     @staticmethod
     def interpret_1(word):
@@ -562,8 +585,8 @@ class Manipulators:
     @staticmethod
     def qdup():
         d = Asm.pop()
+        Asm.push(d)
         if d:
-            Asm.push(d)
             Asm.push(d)
 
     @staticmethod
@@ -592,7 +615,7 @@ class Manipulators:
     @staticmethod
     def divmod():
         a, b = Asm.pop(), Asm.pop()
-        [Asm.push(v) for v in divmod(a, b)]
+        [Asm.push(v) for v in reversed(divmod(b, a))]
 
     @staticmethod
     def equal():
@@ -739,7 +762,7 @@ class Memory:
         # pop %ebx                // address to store at
         # pop %eax                // data to store there
         # movb %al,(%ebx)         // store it
-        pass
+        Memory.stor()
 
     @staticmethod
     def cat():
@@ -747,7 +770,7 @@ class Memory:
         # xor %eax,%eax
         # movb (%ebx),%al         // fetch it
         # push %eax               // push value onto stack
-        pass
+        return Memory.fetch()
 
     # #(/* C@C! is a useful byte copy primitive. */
     # defcode("C@C!", 4, "
@@ -775,8 +798,8 @@ class Memory:
 defvar("HERE", 4, 0)
 defvar("LATEST", 6, 0)
 defvar("STATE", 5, 0)
-defvar("S0", 2, 0)
 defvar("BASE", 4, 10)
+defvar("S0", 2, 0)
 
 
 # --- MANIPULATORS ---
@@ -873,7 +896,7 @@ defcode("DSP!", 4, Stack.dspstor)
 
 # --- CONSTANTS ---
 defconst("VERSION", 7, "JONES_VERSION")
-defconst("R0", 2, 0)
+defconst("R0", 2, _stack_size)
 defconst("DOCOL", 5, Interp.docol)
 defconst("F_IMMED", 7, F_IMMED)
 defconst("F_HIDDEN", 8, F_HIDDEN)
