@@ -3,14 +3,16 @@
 
 import sys
 
-_s0 = 0
-_r0 = 20
-_dsp = _s0
-_rsp = _r0
 _link = None
 _stack_size = 20
-_dict_size = 2 * _stack_size
-_dictionary = _dict_size * [None]
+_s0 = 0
+_r0 = _stack_size
+_pad0 = 2 * _stack_size
+_dsp = _s0
+_rsp = _r0
+_pad = _pad0
+_dict_start = 3 * _stack_size
+_dictionary = _dict_start * [None]
 esi = None
 
 _stream = sys.stdin
@@ -21,7 +23,7 @@ F_LENMASK = 0x1F
 
 
 def _var_loc(n):
-    return _dict_size + 2 * n + 1
+    return _dict_start + 2 * n + 1
 
 
 _vars = {"LATEST": _var_loc(3),
@@ -347,29 +349,20 @@ class Interp:
     @staticmethod
     def litstring():
         global esi
-        # TODO: implement
-        # lodsl                   // get the length of the string
         Asm.lodsl()
-        # push %esi               // push the address of the start of the string
-        # push %eax               // push it on the stack
-        # addl %eax,%esi          // skip past the string
-        # addl $3,%esi            // but round up to next 4 byte boundary
-        # andl $~3,%esi
-        Asm.push(esi)
+        # start address of string is after length
+        Asm.push(esi + 1)
         length = _dictionary[esi]
         Asm.push(length)
         esi += length
 
     @staticmethod
     def tell():
-        # Asm.pop()  # length
-        # word = Asm.pop()
-        # print(''.join(map(chr, word)))
         length = Asm.pop()
         addr = Asm.pop()
         for _ in range(length):
-            addr += 1
             print(chr(_dictionary[addr]), end='')
+            addr += 1
             sys.stdout.flush()
 
     @staticmethod
@@ -452,8 +445,13 @@ class Interp:
     @staticmethod
     def quit():
         while True:
-            Interp.interpret()
-            # Interp.branch(), -8
+            try:
+                Interp.interpret()
+                # Interp.branch(), -8
+            except (KeyboardInterrupt, EOFError):
+                exit()
+            except Exception:
+                Interp.docol_run = 0
 
     @staticmethod
     def char():
@@ -476,12 +474,13 @@ class Asm:
     @staticmethod
     def pop():
         global _dsp
-        if _dsp > 0:
+        if _dsp > _s0:
             _dsp -= 1
             return _dictionary[_dsp]
         else:
-            _dsp = 0
+            _dsp = _s0
             print("ERROR: stack underflow")
+            raise
 
     @staticmethod
     def read(ndx):
@@ -499,11 +498,11 @@ class Asm:
     @staticmethod
     def poprsp():
         global _rsp
-        try:
+        if _rsp > _r0:
             _rsp -= 1
             return _dictionary[_rsp]
-        except Exception:
-            _rsp = 0
+        else:
+            _rsp = _r0
             print("ERROR: return stack underflow")
 
     @staticmethod
@@ -655,7 +654,7 @@ class Manipulators:
     @staticmethod
     def zneq():
         a = Asm.pop()
-        Asm.PUSh(a != 0)
+        Asm.push(a != 0)
 
     @staticmethod
     def zlt():
@@ -713,7 +712,9 @@ class Stack:
     @staticmethod
     def rstor():
         global _rsp
-        _rsp = Asm.pop()
+        new_rsp = Asm.pop()
+        Interp.docol_run -= (_rsp - new_rsp - 1)
+        _rsp = new_rsp
 
     @staticmethod
     def rdrop():
@@ -799,7 +800,7 @@ defvar("HERE", 4, 0)
 defvar("LATEST", 6, 0)
 defvar("STATE", 5, 0)
 defvar("BASE", 4, 10)
-defvar("S0", 2, 0)
+defvar("S0", 2, _s0)
 
 
 # --- MANIPULATORS ---
@@ -875,7 +876,8 @@ defcode("BRANCH", 6, Interp.branch)
 defcode("0BRANCH", 7, Interp.zbranch)
 defcode("LITSTRING", 9, Interp.litstring)
 defcode("TELL", 4, Interp.tell)
-defcode("InterpRET", 9, Interp.interpret)
+defcode("QUIT", 4, Interp.quit)
+defcode("INTERPRET", 9, Interp.interpret)
 defcode("CHAR", 4, Interp.char)
 defcode("EXECUTE", 7, Interp.execute)
 defword("HIDE", 4, Interp.hide)
@@ -896,7 +898,8 @@ defcode("DSP!", 4, Stack.dspstor)
 
 # --- CONSTANTS ---
 defconst("VERSION", 7, "JONES_VERSION")
-defconst("R0", 2, _stack_size)
+defconst("R0", 2, _r0)
+defconst("PAD", 5, _pad0)
 defconst("DOCOL", 5, Interp.docol)
 defconst("F_IMMED", 7, F_IMMED)
 defconst("F_HIDDEN", 8, F_HIDDEN)
