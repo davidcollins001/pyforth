@@ -130,12 +130,15 @@ class Interp:
     @staticmethod
     def emit():
         char = Asm.pop()
-        if isinstance(char, int):
-            if char:
-                print(chr(char), end="")
-                sys.stdout.flush()
-        else:
-            print(char, end="")
+        if char:
+            print(chr(char), end='')
+            sys.stdout.flush()
+
+    @staticmethod
+    def emit_word():
+        addr = Asm.pop()
+        if addr:
+            print(_dictionary[addr + 2], end='')
             sys.stdout.flush()
 
     @staticmethod
@@ -863,6 +866,7 @@ defcode("LIT", 3, Interp.lit)
 defcode("KEY", 3, Interp.key)
 defcode("WORD", 4, Interp.word)
 defcode("EMIT", 4, Interp.emit)
+defcode("ID.", 3, Interp.emit_word)
 defcode("FIND", 4, Interp.find)
 defcode(">CFA", 4, Interp.tcfa)
 defword(">DFA", 4, Interp.tdfa)
