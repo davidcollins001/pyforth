@@ -1,3 +1,4 @@
+
 \ -*- text -*-
 \   A sometimes minimal FORTH compiler and tutorial for Linux / i386 systems. -*- asm -*-
 \   By Richard W.M. Jones <rich@annexia.org> http://annexia.org/forth
@@ -19,7 +20,7 @@
 \   ASCII-art diagrams to explain concepts, the best way to look at this is using a window which
 \   uses a fixed width font and is at least this wide:
 \
-\<------------------------------------------------------------------------------------------------------------------------>
+\ <------------------------------------------------------------------------------------------------------------------------>
 \
 \   Secondly make sure TABS are set to 8 characters.  The following should be a vertical
 \   line.  If not, sort out your tabs.
@@ -89,11 +90,13 @@
 : ';' [ CHAR ; ] LITERAL ;
 : '(' [ CHAR ( ] LITERAL ;
 : ')' [ CHAR ) ] LITERAL ;
-: '"' [ CHAR " ] LITERAL ;
+: '"' [ CHAR " ] LITERAL ;  \ " \ unbreak future highlighting
 : 'A' [ CHAR A ] LITERAL ;
 : '0' [ CHAR 0 ] LITERAL ;
 : '-' [ CHAR - ] LITERAL ;
 : '.' [ CHAR . ] LITERAL ;
+: '[' [ CHAR [ ] LITERAL ;
+: ']' [ CHAR ] ] LITERAL ;
 
 \ While compiling, '[COMPILE] word' compiles 'word' if it would otherwise be IMMEDIATE.
 : [COMPILE] IMMEDIATE
@@ -148,7 +151,6 @@
     SWAP !      \ store the offset in the back-filled location
 ;
 
-\ TODO is offset correct
 : ELSE IMMEDIATE
     ' BRANCH ,  \ definite branch to just over the false-part
     HERE @      \ save location of the offset on the stack
@@ -199,9 +201,10 @@
 : REPEAT IMMEDIATE
     ' BRANCH ,  \ compile BRANCH
     SWAP        \ get the original offset (from BEGIN)
-    HERE @ - ,  \ and compile it after BRANCH
+    HERE @ - 1- ,  \ and compile it after BRANCH
     DUP
     HERE @ SWAP -   \ calculate the offset2
+    1-
     SWAP !      \ and back-fill it in the original location
 ;
 
@@ -226,11 +229,13 @@
     1       \ allowed nested parens by keeping track of depth
     BEGIN
         KEY     \ read next character
-        DUP '(' = IF    \ open paren?
+        \ DUP '(' = IF    \ open paren?
+        DUP 40 = IF    \ open paren?
             DROP        \ drop the open paren
             1+      \ depth increases
         ELSE
-            ')' = IF    \ close paren?
+            \ ')' = IF    \ close paren?
+            41 = IF    \ close paren?
                 1-      \ depth decreases
             THEN
         THEN
@@ -254,11 +259,11 @@
 
 ( Some more complicated stack examples, showing the stack notation. )
 : NIP ( x y -- y ) SWAP DROP ;
-: TUCK ( x y -- y x y ) DUP ROT ;
+: TUCK ( x y -- y x y ) DUP ROT ROT ;
 : PICK ( x_u ... x_1 x_0 u -- x_u ... x_1 x_0 x_u )
-    1+      ( add one because of 'u' on the stack )
-    4 *     ( multiply by the word size )
-    DSP@ +      ( add to the stack pointer )
+    2 +      ( add one because of 'u' on the stack )
+    1 *      ( multiply by the word size )
+    DSP@ swap - ( add to the stack pointer )
     @           ( and fetch )
 ;
 
@@ -329,15 +334,19 @@
     Very useful for debugging.
 )
 : .S        ( -- )
+    '[' EMIT
     DSP@        ( get current stack pointer )
+    1-
     BEGIN
-        DUP S0 @ <
+        DUP S0 @ >=
     WHILE
         DUP @ U.    ( print the stack element )
         SPACE
-        1+      ( move up )
+        1-      ( move up )
     REPEAT
     DROP
+    ']' EMIT
+    '\n' EMIT
 ;
 
 ( This word returns the width (in characters) of an unsigned number in the current base )
@@ -354,7 +363,7 @@
     SWAP        ( width u )
     DUP     ( width u u )
     UWIDTH      ( width u uwidth )
-    -ROT        ( u uwidth width )
+    ROT        ( u uwidth width )
     SWAP -      ( u width-uwidth )
     ( At this point if the requested width is narrower, we'll have a negative number on the stack.
       Otherwise the number on the stack is the number of spaces to print.  But SPACES won't print
@@ -373,18 +382,18 @@
     DUP 0< IF
         NEGATE      ( width u )
         1       ( save a flag to remember that it was negative | width n 1 )
-        ROT     ( 1 width u )
+        -ROT    ( 1 width u )
         SWAP        ( 1 u width )
         1-      ( 1 u width-1 )
     ELSE
         0       ( width u 0 )
-        ROT     ( 0 width u )
+        -ROT    ( 0 width u )
         SWAP        ( 0 u width )
     THEN
     SWAP        ( flag width u )
     DUP     ( flag width u u )
     UWIDTH      ( flag width u uwidth )
-    -ROT        ( flag u uwidth width )
+    ROT         ( flag u uwidth width )
     SWAP -      ( flag u width-uwidth )
 
     SPACES      ( flag u )
@@ -424,15 +433,14 @@
 
 ( DEPTH returns the depth of the stack. )
 : DEPTH     ( -- n )
-    S0 @ DSP@ -
-    1-          ( adjust because S0 was on the stack when we pushed DSP )
+    DSP@ S0 @ -
 ;
 
 (
     ALIGNED takes an address and rounds it up (aligns it) to the next 4 byte boundary.
 )
 : ALIGNED   ( addr -- addr )
-    3 + 3 INVERT AND    ( (addr+3) & ~3 )
+    \ 3 + 3 INVERT AND    ( (addr+3) & ~3 )
 ;
 
 (
@@ -460,10 +468,14 @@
     case we put the string at HERE (but we _don't_ change HERE).  This is meant as a temporary
     location, likely to be overwritten soon after.
 )
-( C, appends a byte to the current compiled word. )
+(
+  C, appends a byte to the current compiled word.
+     using python dict just store byte as any other object
+)
 : C,
-    HERE @ C!   ( store the character in the compiled image )
-    1 HERE +!   ( increment HERE pointer by 1 byte )
+    \ HERE @ C!   ( store the character in the compiled image )
+    \ 1 HERE +!   ( increment HERE pointer by 1 byte )
+    ,
 ;
 
 : S" IMMEDIATE      ( -- addr len )
@@ -480,21 +492,21 @@
         DROP        ( drop the double quote character at the end )
         DUP     ( get the saved address of the length word )
         HERE @ SWAP -   ( calculate the length )
-        1-      ( subtract 4 (because we measured from the start of the length word) )
+        1-      ( subtract 1 (because we measured from the start of the length word) )
         SWAP !      ( and back-fill the length location )
         ALIGN       ( round up to next multiple of 4 bytes for the remaining code )
     ELSE        ( immediate mode )
-        HERE @      ( get the start address of the temporary space )
+        PAD         ( get the start address of the temporary space )
         BEGIN
             KEY
             DUP '"' <>
         WHILE
-            OVER C!     ( save next character )
+            OVER C!   ( save next character )
             1+      ( increment address )
         REPEAT
         DROP        ( drop the final " character )
-        HERE @ -    ( calculate the length )
-        HERE @      ( push the start address )
+        PAD -       ( calculate the length )
+        PAD         ( push the start address )
         SWAP        ( addr len )
     THEN
 ;
@@ -539,7 +551,7 @@
     In FORTH, global constants and variables are defined like this:
 
     10 CONSTANT TEN     when TEN is executed, it leaves the integer 10 on the stack
-    VARIABLE VAR        when VAR is executed, it leaves the address of VAR on the stack
+    10 VARIABLE VAR     when VAR is executed, it stores the value
 
     Constants can be read but not written, eg:
 
@@ -590,7 +602,6 @@
     assembler part which returns the value of the assembler symbol of the same name.
 )
 : CONSTANT
-    WORD        ( get the name (the name follows CONSTANT) )
     CREATE      ( make the dictionary entry )
     DOCOL ,     ( append DOCOL (the codeword field of this word) )
     ' LIT ,     ( append the codeword LIT )
@@ -623,8 +634,11 @@
     a word is compiled that HERE has been left as a multiple of 4).
 )
 : ALLOT     ( n -- addr )
-    HERE @ SWAP ( here n )
-    HERE +!     ( adds n to HERE, after this the old value of HERE is still on the stack )
+    \ HERE @ SWAP ( here n )
+    \ HERE +!     ( adds n to HERE, after this the old value of HERE is still on the stack )
+    HERE @ SWAP   ( get start address )
+    BEGIN 0 , 1- DUP 0= UNTIL
+    DROP
 ;
 
 (
@@ -639,15 +653,13 @@
     diagram above to see what the word that this creates will look like.
 )
 : VARIABLE
-    \ 1 CELLS ALLOT   ( allocate 1 cell of memory, push the pointer to this memory )
-    \ WORD CREATE ( make the dictionary entry (the name follows VARIABLE) )
-    \ DOCOL ,     ( append DOCOL (the codeword field of this word) )
-    \ ' LIT ,     ( append the codeword LIT )
-    \ ,       ( append the pointer to the new memory )
-    \ ' EXIT ,    ( append the codeword EXIT )
-    WORD CREATE ( make the dictionary entry (the name follows VARIABLE) )
-    HERE ,
-    ,       ( append the pointer to the new memory )
+    HERE @ SWAP ( get location of stored value )
+    ,           ( append the pointer to the new memory )
+    CREATE      ( make the dictionary entry (the name follows VARIABLE) )
+    DOCOL ,     ( append DOCOL (the codeword field of this word) )
+    ' LIT ,     ( append the codeword LIT )
+    ,           ( append the pointer to the new memory )
+    ' EXIT ,    ( append the codeword EXIT )
 ;
 
 (
@@ -702,7 +714,7 @@
     way cannot be inlined).
 )
 : VALUE     ( n -- )
-    WORD CREATE ( make the dictionary entry (the name follows VALUE) )
+    CREATE      ( make the dictionary entry (the name follows VALUE) )
     DOCOL ,     ( append DOCOL )
     ' LIT ,     ( append the codeword LIT )
     ,       ( append the initial value )
@@ -745,21 +757,24 @@
 
     For example: LATEST @ ID. would print the name of the last word that was defined.
 )
-: ID.
-    1+      ( skip over the link pointer )
-    DUP C@      ( get the flags/length byte )
-    F_LENMASK AND   ( mask out the flags - just want the length )
+\ TODO name field is string and breaks this
+\ : ID.
+    \ 1+      ( skip over the link pointer )
+    \ DUP C@      ( get the flags/length byte )
+    \ F_LENMASK AND   ( mask out the flags - just want the length )
 
-    BEGIN
-        DUP 0>      ( length > 0? )
-    WHILE
-        SWAP 1+     ( addr len -- len addr+1 )
-        DUP C@      ( len addr -- len addr char | get the next character)
-        EMIT        ( len addr char -- len addr | and print it)
-        SWAP 1-     ( len addr -- addr len-1    | subtract one from length )
-    REPEAT
-    2DROP       ( len addr -- )
-;
+    \ BEGIN
+        \ DUP 0>      ( length > 0? )
+    \ WHILE
+        \ SWAP 1+     ( addr len -- len addr+1 )
+        \ DUP C@      ( len addr -- len addr char | get the next character)
+        \ EMIT        ( len addr char -- len addr | and print it)
+        \ SWAP 1-     ( len addr -- addr len-1    | subtract one from length )
+    \ REPEAT
+    \ 2DROP       ( len addr -- )
+    \ 1+
+    \ @ emit
+\ ;
 
 (
     'WORD word FIND ?HIDDEN' returns true if 'word' is flagged as hidden.
@@ -1298,8 +1313,8 @@
 ;
 
 : CATCH     ( xt -- exn? )
-    DSP@ 1+ >R      ( save parameter stack pointer (+4 because of xt) on the return stack )
-    ' EXCEPTION-MARKER 1+   ( push the address of the RDROP inside EXCEPTION-MARKER ... )
+    DSP@ 1- >R      ( save parameter stack pointer (-1 because of xt) on the return stack )
+    ' EXCEPTION-MARKER 1+  ( push the address of the RDROP inside EXCEPTION-MARKER ... )
     >R          ( ... on to the return stack so it acts like a return address )
     EXECUTE         ( execute the nested function )
 ;
@@ -1308,37 +1323,34 @@
     ?DUP IF         ( only act if the exception code <> 0 )
         RSP@            ( get return stack pointer )
         BEGIN
-            DUP R0 1- <     ( RSP < R0 )
+            DUP 1- R0 >     ( RSP > R0 )
         WHILE
-            DUP @           ( get the return stack entry )
+            DUP 1- @           ( get the return stack entry )
             ' EXCEPTION-MARKER 1+ = IF  ( found the EXCEPTION-MARKER on the return stack )
-                1+          ( skip the EXCEPTION-MARKER on the return stack )
+                1-          ( skip the EXCEPTION-MARKER on the return stack )
                 RSP!            ( restore the return stack pointer )
 
                 ( Restore the parameter stack. )
                 DUP DUP DUP     ( reserve some working space so the stack for this word
                               doesn't coincide with the part of the stack being restored )
                 R>          ( get the saved parameter stack pointer | n dsp )
-                1-          ( reserve space on the stack to store n )
+                1+          ( reserve space on the stack to store n )
                 SWAP OVER       ( dsp n dsp )
                 !           ( write n on the stack )
                 DSP! EXIT       ( restore the parameter stack pointer, immediately exit )
             THEN
-            1+
+            1-
         REPEAT
 
         ( No matching catch - print a message and restart the INTERPRETer. )
         DROP
 
-        CASE
-        0 1- OF ( ABORT )
+        0 1- over = IF ( ABORT )
             ." ABORTED" CR
-        ENDOF
-            ( default case )
+        ELSE
             ." UNCAUGHT THROW "
             DUP . CR
-        ENDCASE
-        QUIT
+        THEN
     THEN
 ;
 
@@ -1399,402 +1411,402 @@
     For example, DUP STRLEN TELL prints a C string.
 )
 
-(
-    Z" .." is like S" ..." except that the string is terminated by an ASCII NUL character.
-
-    To make it more like a C string, at runtime Z" just leaves the address of the string
-    on the stack (not address & length as with S").  To implement this we need to add the
-    extra NUL to the string and also a DROP instruction afterwards.  Apart from that the
-    implementation just a modified S".
-)
-: Z" IMMEDIATE
-    STATE @ IF  ( compiling? )
-        ' LITSTRING ,   ( compile LITSTRING )
-        HERE @      ( save the address of the length word on the stack )
-        0 ,     ( dummy length - we don't know what it is yet )
-        BEGIN
-            KEY         ( get next character of the string )
-            DUP '"' <>
-        WHILE
-            HERE @ C!   ( store the character in the compiled image )
-            1 HERE +!   ( increment HERE pointer by 1 byte )
-        REPEAT
-        0 HERE @ C! ( add the ASCII NUL byte )
-        1 HERE +!
-        DROP        ( drop the double quote character at the end )
-        DUP     ( get the saved address of the length word )
-        HERE @ SWAP -   ( calculate the length )
-        1-      ( subtract 4 (because we measured from the start of the length word) )
-        SWAP !      ( and back-fill the length location )
-        ALIGN       ( round up to next multiple of 4 bytes for the remaining code )
-        ' DROP ,    ( compile DROP (to drop the length) )
-    ELSE        ( immediate mode )
-        HERE @      ( get the start address of the temporary space )
-        BEGIN
-            KEY
-            DUP '"' <>
-        WHILE
-            OVER C!     ( save next character )
-            1+      ( increment address )
-        REPEAT
-        DROP        ( drop the final " character )
-        0 SWAP C!   ( store final ASCII NUL )
-        HERE @      ( push the start address )
-    THEN
-;
-
-: STRLEN    ( str -- len )
-    DUP     ( save start address )
-    BEGIN
-        DUP C@ 0<>  ( zero byte found? )
-    WHILE
-        1+
-    REPEAT
-
-    SWAP -      ( calculate the length )
-;
-
-: CSTRING   ( addr len -- c-addr )
-    SWAP OVER   ( len saddr len )
-    HERE @ SWAP ( len saddr daddr len )
-    CMOVE       ( len )
-
-    HERE @ +    ( daddr+len )
-    0 SWAP C!   ( store terminating NUL char )
-
-    HERE @      ( push start address )
-;
-
-(
-    THE ENVIRONMENT ----------------------------------------------------------------------
-
-    Linux makes the process arguments and environment available to us on the stack.
-
-    The top of stack pointer is saved by the early assembler code when we start up in the FORTH
-    variable S0, and starting at this pointer we can read out the command line arguments and the
-    environment.
-
-    Starting at S0, S0 itself points to argc (the number of command line arguments).
-
-    S0+4 points to argv[0], S0+8 points to argv[1] etc up to argv[argc-1].
-
-    argv[argc] is a NULL pointer.
-
-    After that the stack contains environment variables, a set of pointers to strings of the
-    form NAME=VALUE and on until we get to another NULL pointer.
-
-    The first word that we define, ARGC, pushes the number of command line arguments (note that
-    as with C argc, this includes the name of the command).
-)
-: ARGC
-    S0 @ @
-;
-
-(
-    n ARGV gets the nth command line argument.
-
-    For example to print the command name you would do:
-        0 ARGV TELL CR
-)
-: ARGV ( n -- str u )
-    1+ CELLS S0 @ + ( get the address of argv[n] entry )
-    @       ( get the address of the string )
-    DUP STRLEN  ( and get its length / turn it into a FORTH string )
-;
-
-(
-    ENVIRON returns the address of the first environment string.  The list of strings ends
-    with a NULL pointer.
-
-    For example to print the first string in the environment you could do:
-        ENVIRON @ DUP STRLEN TELL
-)
-: ENVIRON   ( -- addr )
-    ARGC        ( number of command line parameters on the stack to skip )
-    2 +     ( skip command line count and NULL pointer after the command line args )
-    CELLS       ( convert to an offset )
-    S0 @ +      ( add to base stack address )
-;
-
-(
-    SYSTEM CALLS AND FILES  ----------------------------------------------------------------------
-
-    Miscellaneous words related to system calls, and standard access to files.
-)
-
-( BYE exits by calling the Linux exit(2) syscall. )
-: BYE       ( -- )
-    0       ( return code (0) )
-    SYS_EXIT    ( system call number )
-    SYSCALL1
-;
-
-(
-    UNUSED returns the number of cells remaining in the user memory (data segment).
-
-    For our implementation we will use Linux brk(2) system call to find out the end
-    of the data segment and subtract HERE from it.
-)
-: GET-BRK   ( -- brkpoint )
-    0 SYS_BRK SYSCALL1  ( call brk(0) )
-;
-
-: UNUSED    ( -- n )
-    GET-BRK     ( get end of data segment according to the kernel )
-    HERE @      ( get current position in data segment )
-    -
-    4 /     ( returns number of cells )
-;
-
-(
-    MORECORE increases the data segment by the specified number of (4 byte) cells.
-
-    NB. The number of cells requested should normally be a multiple of 1024.  The
-    reason is that Linux can't extend the data segment by less than a single page
-    (4096 bytes or 1024 cells).
-
-    This FORTH doesn't automatically increase the size of the data segment "on demand"
-    (ie. when , (COMMA), ALLOT, CREATE, and so on are used).  Instead the programmer
-    needs to be aware of how much space a large allocation will take, check UNUSED, and
-    call MORECORE if necessary.  A simple programming exercise is to change the
-    implementation of the data segment so that MORECORE is called automatically if
-    the program needs more memory.
-)
-: BRK       ( brkpoint -- )
-    SYS_BRK SYSCALL1
-;
-
-: MORECORE  ( cells -- )
-    CELLS GET-BRK + BRK
-;
-
-(
-    Standard FORTH provides some simple file access primitives which we model on
-    top of Linux syscalls.
-
-    The main complication is converting FORTH strings (address & length) into C
-    strings for the Linux kernel.
-
-    Notice there is no buffering in this implementation.
-)
-
-: R/O ( -- fam ) O_RDONLY ;
-: R/W ( -- fam ) O_RDWR ;
-
-: OPEN-FILE ( addr u fam -- fd 0 (if successful) | c-addr u fam -- fd errno (if there was an error) )
-    ROT     ( fam addr u )
-    CSTRING     ( fam cstring )
-    SYS_OPEN SYSCALL2 ( open (filename, flags) )
-    DUP     ( fd fd )
-    DUP 0< IF   ( errno? )
-        NEGATE      ( fd errno )
-    ELSE
-        DROP 0      ( fd 0 )
-    THEN
-;
-
-: CREATE-FILE   ( addr u fam -- fd 0 (if successful) | c-addr u fam -- fd errno (if there was an error) )
-    O_CREAT OR
-    O_TRUNC OR
-    ROT     ( fam addr u )
-    CSTRING     ( fam cstring )
-    420 ROT     ( 0644 fam cstring )
-    SYS_OPEN SYSCALL3 ( open (filename, flags|O_TRUNC|O_CREAT, 0644) )
-    DUP     ( fd fd )
-    DUP 0< IF   ( errno? )
-        NEGATE      ( fd errno )
-    ELSE
-        DROP 0      ( fd 0 )
-    THEN
-;
-
-: CLOSE-FILE    ( fd -- 0 (if successful) | fd -- errno (if there was an error) )
-    SYS_CLOSE SYSCALL1
-    NEGATE
-;
-
-: READ-FILE ( addr u fd -- u2 0 (if successful) | addr u fd -- 0 0 (if EOF) | addr u fd -- u2 errno (if error) )
-    ROT SWAP -ROT   ( u addr fd )
-    SYS_READ SYSCALL3
-
-    DUP     ( u2 u2 )
-    DUP 0< IF   ( errno? )
-        NEGATE      ( u2 errno )
-    ELSE
-        DROP 0      ( u2 0 )
-    THEN
-;
-
-(
-    PERROR prints a message for an errno, similar to C's perror(3) but we don't have the extensive
-    list of strerror strings available, so all we can do is print the errno.
-)
-: PERROR    ( errno addr u -- )
-    TELL
-    ':' EMIT SPACE
-    ." ERRNO="
-    . CR
-;
-
-(
-    ASSEMBLER CODE ----------------------------------------------------------------------
-
-    This is just the outline of a simple assembler, allowing you to write FORTH primitives
-    in assembly language.
-
-    Assembly primitives begin ': NAME' in the normal way, but are ended with ;CODE.  ;CODE
-    updates the header so that the codeword isn't DOCOL, but points instead to the assembled
-    code (in the DFA part of the word).
-
-    We provide a convenience macro NEXT (you guessed what it does).  However you don't need to
-    use it because ;CODE will put a NEXT at the end of your word.
-
-    The rest consists of some immediate words which expand into machine code appended to the
-    definition of the word.  Only a very tiny part of the i386 assembly space is covered, just
-    enough to write a few assembler primitives below.
-)
-
-HEX
-
-( Equivalent to the NEXT macro )
-: NEXT IMMEDIATE AD C, FF C, 20 C, ;
-
-: ;CODE IMMEDIATE
-    [COMPILE] NEXT      ( end the word with NEXT macro )
-    ALIGN           ( machine code is assembled in bytes so isn't necessarily aligned at the end )
-    LATEST @ DUP
-    HIDDEN          ( unhide the word )
-    DUP >DFA SWAP >CFA !    ( change the codeword to point to the data area )
-    [COMPILE] [     ( go back to immediate mode )
-;
-
-( The i386 registers )
-: EAX IMMEDIATE 0 ;
-: ECX IMMEDIATE 1 ;
-: EDX IMMEDIATE 2 ;
-: EBX IMMEDIATE 3 ;
-: ESP IMMEDIATE 4 ;
-: EBP IMMEDIATE 5 ;
-: ESI IMMEDIATE 6 ;
-: EDI IMMEDIATE 7 ;
-
-( i386 stack instructions )
-: PUSH IMMEDIATE 50 + C, ;
-: POP IMMEDIATE 58 + C, ;
-
-( RDTSC instruction )
-: RDTSC IMMEDIATE 0F C, 31 C, ;
-
-DECIMAL
-
-(
-    RDTSC is an assembler primitive which reads the Pentium timestamp counter (a very fine-
-    grained counter which counts processor clock cycles).  Because the TSC is 64 bits wide
-    we have to push it onto the stack in two slots.
-)
-: RDTSC     ( -- lsb msb )
-    RDTSC       ( writes the result in %edx:%eax )
-    EAX PUSH    ( push lsb )
-    EDX PUSH    ( push msb )
-;CODE
-
-(
-    INLINE can be used to inline an assembler primitive into the current (assembler)
-    word.
-
-    For example:
-
-        : 2DROP INLINE DROP INLINE DROP ;CODE
-
-    will build an efficient assembler word 2DROP which contains the inline assembly code
-    for DROP followed by DROP (eg. two 'pop %eax' instructions in this case).
-
-    Another example.  Consider this ordinary FORTH definition:
-
-        : C@++ ( addr -- addr+1 byte ) DUP 1+ SWAP C@ ;
-
-    (it is equivalent to the C operation '*p++' where p is a pointer to char).  If we
-    notice that all of the words used to define C@++ are in fact assembler primitives,
-    then we can write a faster (but equivalent) definition like this:
-
-        : C@++ INLINE DUP INLINE 1+ INLINE SWAP INLINE C@ ;CODE
-
-    One interesting point to note is that this "concatenative" style of programming
-    allows you to write assembler words portably.  The above definition would work
-    for any CPU architecture.
-
-    There are several conditions that must be met for INLINE to be used successfully:
-
-    (1) You must be currently defining an assembler word (ie. : ... ;CODE).
-
-    (2) The word that you are inlining must be known to be an assembler word.  If you try
-    to inline a FORTH word, you'll get an error message.
-
-    (3) The assembler primitive must be position-independent code and must end with a
-    single NEXT macro.
-
-    Exercises for the reader: (a) Generalise INLINE so that it can inline FORTH words when
-    building FORTH words. (b) Further generalise INLINE so that it does something sensible
-    when you try to inline FORTH into assembler and vice versa.
-
-    The implementation of INLINE is pretty simple.  We find the word in the dictionary,
-    check it's an assembler word, then copy it into the current definition, byte by byte,
-    until we reach the NEXT macro (which is not copied).
-)
-HEX
-: =NEXT     ( addr -- next? )
-       DUP C@ AD <> IF DROP FALSE EXIT THEN
-    1+ DUP C@ FF <> IF DROP FALSE EXIT THEN
-    1+     C@ 20 <> IF      FALSE EXIT THEN
-    TRUE
-;
-DECIMAL
-
-( (INLINE) is the lowlevel inline function. )
-: (INLINE)  ( cfa -- )
-    @           ( remember codeword points to the code )
-    BEGIN           ( copy bytes until we hit NEXT macro )
-        DUP =NEXT NOT
-    WHILE
-        DUP C@ C,
-        1+
-    REPEAT
-    DROP
-;
-
-: INLINE IMMEDIATE
-    WORD FIND       ( find the word in the dictionary )
-    >CFA            ( codeword )
-
-    DUP @ DOCOL = IF    ( check codeword <> DOCOL (ie. not a FORTH word) )
-        ." Cannot INLINE FORTH words" CR ABORT
-    THEN
-
-    (INLINE)
-;
-
-HIDE =NEXT
-
-(
-    NOTES ----------------------------------------------------------------------
-
-    DOES> isn't possible to implement with this FORTH because we don't have a separate
-    data pointer.
-)
-
-(
-    WELCOME MESSAGE ----------------------------------------------------------------------
-
-    Print the version and OK prompt.
-)
-
-: WELCOME
-    S" TEST-MODE" FIND NOT IF
-        ." JONESFORTH VERSION " VERSION . CR
-        UNUSED . ." CELLS REMAINING" CR
-        ." OK "
-    THEN
-;
-
-WELCOME
-HIDE WELCOME
+\ (
+\     Z" .." is like S" ..." except that the string is terminated by an ASCII NUL character.
+\
+\     To make it more like a C string, at runtime Z" just leaves the address of the string
+\     on the stack (not address & length as with S").  To implement this we need to add the
+\     extra NUL to the string and also a DROP instruction afterwards.  Apart from that the
+\     implementation just a modified S".
+\ )
+\ : Z" IMMEDIATE
+\     STATE @ IF  ( compiling? )
+\         ' LITSTRING ,   ( compile LITSTRING )
+\         HERE @      ( save the address of the length word on the stack )
+\         0 ,     ( dummy length - we don't know what it is yet )
+\         BEGIN
+\             KEY         ( get next character of the string )
+\             DUP '"' <>
+\         WHILE
+\             HERE @ C!   ( store the character in the compiled image )
+\             1 HERE +!   ( increment HERE pointer by 1 byte )
+\         REPEAT
+\         0 HERE @ C! ( add the ASCII NUL byte )
+\         1 HERE +!
+\         DROP        ( drop the double quote character at the end )
+\         DUP     ( get the saved address of the length word )
+\         HERE @ SWAP -   ( calculate the length )
+\         1-      ( subtract 4 (because we measured from the start of the length word) )
+\         SWAP !      ( and back-fill the length location )
+\         ALIGN       ( round up to next multiple of 4 bytes for the remaining code )
+\         ' DROP ,    ( compile DROP (to drop the length) )
+\     ELSE        ( immediate mode )
+\         HERE @      ( get the start address of the temporary space )
+\         BEGIN
+\             KEY
+\             DUP '"' <>
+\         WHILE
+\             OVER C!     ( save next character )
+\             1+      ( increment address )
+\         REPEAT
+\         DROP        ( drop the final " character )
+\         0 SWAP C!   ( store final ASCII NUL )
+\         HERE @      ( push the start address )
+\     THEN
+\ ;
+\
+\ : STRLEN    ( str -- len )
+\     DUP     ( save start address )
+\     BEGIN
+\         DUP C@ 0<>  ( zero byte found? )
+\     WHILE
+\         1+
+\     REPEAT
+\
+\     SWAP -      ( calculate the length )
+\ ;
+\
+\ : CSTRING   ( addr len -- c-addr )
+\     SWAP OVER   ( len saddr len )
+\     HERE @ SWAP ( len saddr daddr len )
+\     CMOVE       ( len )
+\
+\     HERE @ +    ( daddr+len )
+\     0 SWAP C!   ( store terminating NUL char )
+\
+\     HERE @      ( push start address )
+\ ;
+\
+\ (
+\     THE ENVIRONMENT ----------------------------------------------------------------------
+\
+\     Linux makes the process arguments and environment available to us on the stack.
+\
+\     The top of stack pointer is saved by the early assembler code when we start up in the FORTH
+\     variable S0, and starting at this pointer we can read out the command line arguments and the
+\     environment.
+\
+\     Starting at S0, S0 itself points to argc (the number of command line arguments).
+\
+\     S0+4 points to argv[0], S0+8 points to argv[1] etc up to argv[argc-1].
+\
+\     argv[argc] is a NULL pointer.
+\
+\     After that the stack contains environment variables, a set of pointers to strings of the
+\     form NAME=VALUE and on until we get to another NULL pointer.
+\
+\     The first word that we define, ARGC, pushes the number of command line arguments (note that
+\     as with C argc, this includes the name of the command).
+\ )
+\ : ARGC
+\     S0 @ @
+\ ;
+\
+\ (
+\     n ARGV gets the nth command line argument.
+\
+\     For example to print the command name you would do:
+\         0 ARGV TELL CR
+\ )
+\ : ARGV ( n -- str u )
+\     1+ CELLS S0 @ + ( get the address of argv[n] entry )
+\     @       ( get the address of the string )
+\     DUP STRLEN  ( and get its length / turn it into a FORTH string )
+\ ;
+\
+\ (
+\     ENVIRON returns the address of the first environment string.  The list of strings ends
+\     with a NULL pointer.
+\
+\     For example to print the first string in the environment you could do:
+\         ENVIRON @ DUP STRLEN TELL
+\ )
+\ : ENVIRON   ( -- addr )
+\     ARGC        ( number of command line parameters on the stack to skip )
+\     2 +     ( skip command line count and NULL pointer after the command line args )
+\     CELLS       ( convert to an offset )
+\     S0 @ +      ( add to base stack address )
+\ ;
+\
+\ (
+\     SYSTEM CALLS AND FILES  ----------------------------------------------------------------------
+\
+\     Miscellaneous words related to system calls, and standard access to files.
+\ )
+\
+\ ( BYE exits by calling the Linux exit(2) syscall. )
+\ : BYE       ( -- )
+\     0       ( return code (0) )
+\     SYS_EXIT    ( system call number )
+\     SYSCALL1
+\ ;
+\
+\ (
+\     UNUSED returns the number of cells remaining in the user memory (data segment).
+\
+\     For our implementation we will use Linux brk(2) system call to find out the end
+\     of the data segment and subtract HERE from it.
+\ )
+\ : GET-BRK   ( -- brkpoint )
+\     0 SYS_BRK SYSCALL1  ( call brk(0) )
+\ ;
+\
+\ : UNUSED    ( -- n )
+\     GET-BRK     ( get end of data segment according to the kernel )
+\     HERE @      ( get current position in data segment )
+\     -
+\     4 /     ( returns number of cells )
+\ ;
+\
+\ (
+\     MORECORE increases the data segment by the specified number of (4 byte) cells.
+\
+\     NB. The number of cells requested should normally be a multiple of 1024.  The
+\     reason is that Linux can't extend the data segment by less than a single page
+\     (4096 bytes or 1024 cells).
+\
+\     This FORTH doesn't automatically increase the size of the data segment "on demand"
+\     (ie. when , (COMMA), ALLOT, CREATE, and so on are used).  Instead the programmer
+\     needs to be aware of how much space a large allocation will take, check UNUSED, and
+\     call MORECORE if necessary.  A simple programming exercise is to change the
+\     implementation of the data segment so that MORECORE is called automatically if
+\     the program needs more memory.
+\ )
+\ : BRK       ( brkpoint -- )
+\     SYS_BRK SYSCALL1
+\ ;
+\
+\ : MORECORE  ( cells -- )
+\     CELLS GET-BRK + BRK
+\ ;
+\
+\ (
+\     Standard FORTH provides some simple file access primitives which we model on
+\     top of Linux syscalls.
+\
+\     The main complication is converting FORTH strings (address & length) into C
+\     strings for the Linux kernel.
+\
+\     Notice there is no buffering in this implementation.
+\ )
+\
+\ : R/O ( -- fam ) O_RDONLY ;
+\ : R/W ( -- fam ) O_RDWR ;
+\
+\ : OPEN-FILE ( addr u fam -- fd 0 (if successful) | c-addr u fam -- fd errno (if there was an error) )
+\     ROT     ( fam addr u )
+\     CSTRING     ( fam cstring )
+\     SYS_OPEN SYSCALL2 ( open (filename, flags) )
+\     DUP     ( fd fd )
+\     DUP 0< IF   ( errno? )
+\         NEGATE      ( fd errno )
+\     ELSE
+\         DROP 0      ( fd 0 )
+\     THEN
+\ ;
+\
+\ : CREATE-FILE   ( addr u fam -- fd 0 (if successful) | c-addr u fam -- fd errno (if there was an error) )
+\     O_CREAT OR
+\     O_TRUNC OR
+\     ROT     ( fam addr u )
+\     CSTRING     ( fam cstring )
+\     420 ROT     ( 0644 fam cstring )
+\     SYS_OPEN SYSCALL3 ( open (filename, flags|O_TRUNC|O_CREAT, 0644) )
+\     DUP     ( fd fd )
+\     DUP 0< IF   ( errno? )
+\         NEGATE      ( fd errno )
+\     ELSE
+\         DROP 0      ( fd 0 )
+\     THEN
+\ ;
+\
+\ : CLOSE-FILE    ( fd -- 0 (if successful) | fd -- errno (if there was an error) )
+\     SYS_CLOSE SYSCALL1
+\     NEGATE
+\ ;
+\
+\ : READ-FILE ( addr u fd -- u2 0 (if successful) | addr u fd -- 0 0 (if EOF) | addr u fd -- u2 errno (if error) )
+\     ROT SWAP -ROT   ( u addr fd )
+\     SYS_READ SYSCALL3
+\
+\     DUP     ( u2 u2 )
+\     DUP 0< IF   ( errno? )
+\         NEGATE      ( u2 errno )
+\     ELSE
+\         DROP 0      ( u2 0 )
+\     THEN
+\ ;
+\
+\ (
+\     PERROR prints a message for an errno, similar to C's perror(3) but we don't have the extensive
+\     list of strerror strings available, so all we can do is print the errno.
+\ )
+\ : PERROR    ( errno addr u -- )
+\     TELL
+\     ':' EMIT SPACE
+\     ." ERRNO="
+\     . CR
+\ ;
+\
+\ (
+\     ASSEMBLER CODE ----------------------------------------------------------------------
+\
+\     This is just the outline of a simple assembler, allowing you to write FORTH primitives
+\     in assembly language.
+\
+\     Assembly primitives begin ': NAME' in the normal way, but are ended with ;CODE.  ;CODE
+\     updates the header so that the codeword isn't DOCOL, but points instead to the assembled
+\     code (in the DFA part of the word).
+\
+\     We provide a convenience macro NEXT (you guessed what it does).  However you don't need to
+\     use it because ;CODE will put a NEXT at the end of your word.
+\
+\     The rest consists of some immediate words which expand into machine code appended to the
+\     definition of the word.  Only a very tiny part of the i386 assembly space is covered, just
+\     enough to write a few assembler primitives below.
+\ )
+\
+\ HEX
+\
+\ ( Equivalent to the NEXT macro )
+\ : NEXT IMMEDIATE AD C, FF C, 20 C, ;
+\
+\ : ;CODE IMMEDIATE
+\     [COMPILE] NEXT      ( end the word with NEXT macro )
+\     ALIGN           ( machine code is assembled in bytes so isn't necessarily aligned at the end )
+\     LATEST @ DUP
+\     HIDDEN          ( unhide the word )
+\     DUP >DFA SWAP >CFA !    ( change the codeword to point to the data area )
+\     [COMPILE] [     ( go back to immediate mode )
+\ ;
+\
+\ ( The i386 registers )
+\ : EAX IMMEDIATE 0 ;
+\ : ECX IMMEDIATE 1 ;
+\ : EDX IMMEDIATE 2 ;
+\ : EBX IMMEDIATE 3 ;
+\ : ESP IMMEDIATE 4 ;
+\ : EBP IMMEDIATE 5 ;
+\ : ESI IMMEDIATE 6 ;
+\ : EDI IMMEDIATE 7 ;
+\
+\ ( i386 stack instructions )
+\ : PUSH IMMEDIATE 50 + C, ;
+\ : POP IMMEDIATE 58 + C, ;
+\
+\ ( RDTSC instruction )
+\ : RDTSC IMMEDIATE 0F C, 31 C, ;
+\
+\ DECIMAL
+\
+\ (
+\     RDTSC is an assembler primitive which reads the Pentium timestamp counter (a very fine-
+\     grained counter which counts processor clock cycles).  Because the TSC is 64 bits wide
+\     we have to push it onto the stack in two slots.
+\ )
+\ : RDTSC     ( -- lsb msb )
+\     RDTSC       ( writes the result in %edx:%eax )
+\     EAX PUSH    ( push lsb )
+\     EDX PUSH    ( push msb )
+\ ;CODE
+\
+\ (
+\     INLINE can be used to inline an assembler primitive into the current (assembler)
+\     word.
+\
+\     For example:
+\
+\         : 2DROP INLINE DROP INLINE DROP ;CODE
+\
+\     will build an efficient assembler word 2DROP which contains the inline assembly code
+\     for DROP followed by DROP (eg. two 'pop %eax' instructions in this case).
+\
+\     Another example.  Consider this ordinary FORTH definition:
+\
+\         : C@++ ( addr -- addr+1 byte ) DUP 1+ SWAP C@ ;
+\
+\     (it is equivalent to the C operation '*p++' where p is a pointer to char).  If we
+\     notice that all of the words used to define C@++ are in fact assembler primitives,
+\     then we can write a faster (but equivalent) definition like this:
+\
+\         : C@++ INLINE DUP INLINE 1+ INLINE SWAP INLINE C@ ;CODE
+\
+\     One interesting point to note is that this "concatenative" style of programming
+\     allows you to write assembler words portably.  The above definition would work
+\     for any CPU architecture.
+\
+\     There are several conditions that must be met for INLINE to be used successfully:
+\
+\     (1) You must be currently defining an assembler word (ie. : ... ;CODE).
+\
+\     (2) The word that you are inlining must be known to be an assembler word.  If you try
+\     to inline a FORTH word, you'll get an error message.
+\
+\     (3) The assembler primitive must be position-independent code and must end with a
+\     single NEXT macro.
+\
+\     Exercises for the reader: (a) Generalise INLINE so that it can inline FORTH words when
+\     building FORTH words. (b) Further generalise INLINE so that it does something sensible
+\     when you try to inline FORTH into assembler and vice versa.
+\
+\     The implementation of INLINE is pretty simple.  We find the word in the dictionary,
+\     check it's an assembler word, then copy it into the current definition, byte by byte,
+\     until we reach the NEXT macro (which is not copied).
+\ )
+\ HEX
+\ : =NEXT     ( addr -- next? )
+\        DUP C@ AD <> IF DROP FALSE EXIT THEN
+\     1+ DUP C@ FF <> IF DROP FALSE EXIT THEN
+\     1+     C@ 20 <> IF      FALSE EXIT THEN
+\     TRUE
+\ ;
+\ DECIMAL
+\
+\ ( (INLINE) is the lowlevel inline function. )
+\ : (INLINE)  ( cfa -- )
+\     @           ( remember codeword points to the code )
+\     BEGIN           ( copy bytes until we hit NEXT macro )
+\         DUP =NEXT NOT
+\     WHILE
+\         DUP C@ C,
+\         1+
+\     REPEAT
+\     DROP
+\ ;
+\
+\ : INLINE IMMEDIATE
+\     WORD FIND       ( find the word in the dictionary )
+\     >CFA            ( codeword )
+\
+\     DUP @ DOCOL = IF    ( check codeword <> DOCOL (ie. not a FORTH word) )
+\         ." Cannot INLINE FORTH words" CR ABORT
+\     THEN
+\
+\     (INLINE)
+\ ;
+\
+\ HIDE =NEXT
+\
+\ (
+\     NOTES ----------------------------------------------------------------------
+\
+\     DOES> isn't possible to implement with this FORTH because we don't have a separate
+\     data pointer.
+\ )
+\
+\ (
+\     WELCOME MESSAGE ----------------------------------------------------------------------
+\
+\     Print the version and OK prompt.
+\ )
+\
+\ : WELCOME
+\     S" TEST-MODE" FIND NOT IF
+\         ." JONESFORTH VERSION " VERSION . CR
+\         UNUSED . ." CELLS REMAINING" CR
+\         ." OK "
+\     THEN
+\ ;
+\
+\ WELCOME
+\ HIDE WELCOME
