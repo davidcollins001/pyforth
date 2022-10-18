@@ -221,6 +221,27 @@
     [COMPILE] IF    \ continue by calling the normal IF
 ;
 
+\ X Y DO loop-part LOOP
+\   -- compiles to: --> loop-part counter-update 0BRANCH OFFSET
+: DO IMMEDIATE
+  ' swap ,        \ swap to store lower upper
+  HERE @          \ save location on the stack
+   ' >R , ' >R ,  \ store lower/upper bound on return stack
+;
+
+: LOOP IMMEDIATE
+  ' R> , ' 1+ ,     \ increment lower bound
+  ' R> ,            \ get upper bound
+  ' 2DUP ,          \ copy to compare
+  ' = , ' 0BRANCH , \ loop back until counters match
+  HERE @ - 1- ,     \ compile offset
+  ' 2DROP ,         \ compile drop to remove loop counter
+;
+
+\ loop index for outer/inner loops
+: I rsp@ 2- @ ;
+: J rsp@ 4 - @ ;
+
 \   COMMENTS ----------------------------------------------------------------------
 \
 \ FORTH allows ( ... ) as comments within function definitions.  This works by having an IMMEDIATE

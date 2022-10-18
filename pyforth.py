@@ -600,6 +600,14 @@ class Manipulators:
         Asm.push(Asm.pop() - 1)
 
     @staticmethod
+    def twop():
+        Asm.push(Asm.pop() + 2)
+
+    @staticmethod
+    def twom():
+        Asm.push(Asm.pop() - 2)
+
+    @staticmethod
     def plus():
         a, b = Asm.pop(), Asm.pop()
         Asm.push(a + b)
@@ -819,6 +827,8 @@ defcode("2SWAP", 5, Manipulators.dswap)
 defcode("?DUP", 4, Manipulators.qdup)
 defcode("1+", 2, Manipulators.onep)
 defcode("1-", 2, Manipulators.onem)
+defcode("2+", 2, Manipulators.twop)
+defcode("2-", 2, Manipulators.twom)
 # defcode("4+", 2, "
         # addl $4,(%esp)          // add 4 to top of stack
         # Interp.NEXT")
