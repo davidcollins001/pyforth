@@ -350,26 +350,6 @@
     EMIT
 ;
 
-(
-    FORTH word .S prints the contents of the stack.  It doesn't alter the stack.
-    Very useful for debugging.
-)
-: .S        ( -- )
-    '[' EMIT
-    DSP@        ( get current stack pointer )
-    1-
-    BEGIN
-        DUP S0 @ >=
-    WHILE
-        DUP @ U.    ( print the stack element )
-        SPACE
-        1-      ( move up )
-    REPEAT
-    DROP
-    ']' EMIT
-    '\n' EMIT
-;
-
 ( This word returns the width (in characters) of an unsigned number in the current base )
 : UWIDTH    ( u -- width )
     BASE @ /    ( rem quot )
@@ -429,6 +409,24 @@
 
 ( Finally we can define word . in terms of .R, with a trailing space. )
 : . 0 .R SPACE ;
+(
+    FORTH word .S prints the contents of the stack.  It doesn't alter the stack.
+    Very useful for debugging.
+)
+: .S        ( -- )
+    '[' EMIT
+    DSP@        ( get current stack pointer )
+    1-
+    BEGIN
+        DUP S0 @ >=
+    WHILE
+        DUP @ 0 .r    ( print the stack element )
+        DUP IF SPACE THEN
+        1-      ( move up )
+    REPEAT
+    DROP
+    ']' EMIT '\n' EMIT
+;
 
 ( The real U., note the trailing space. )
 : U. U. SPACE ;
