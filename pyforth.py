@@ -67,7 +67,7 @@ def defcode(name, namelen, code, flags=0):
 
 
 def defword(name, namelen, code, flags=0):
-    defcode(name, namelen, [Interp.docol] + code(), flags)
+    defcode(name, namelen, [Compiler.docol] + code(), flags)
 
 
 def defvar(name, namelen, initial=0, flags=0):
@@ -76,7 +76,7 @@ def defvar(name, namelen, initial=0, flags=0):
 
 def defconst(name, namelen, value, flags=0):
     defword(name, namelen,
-            lambda: [Interp._w2a("LIT"), value, Interp._w2a("EXIT")],
+            lambda: [Compiler._w2a("LIT"), value, Compiler._w2a("EXIT")],
             flags)
 
 
@@ -86,32 +86,14 @@ def defconst(name, namelen, value, flags=0):
 class Interp:
     input_buffer = []
     word_buffer = []
-    docol_run = 0
+    frame = 0
     interpret_is_lit = 0
-
-    @staticmethod
-    def docol(instruction_p=None):
-        global esi
-        Asm.pushrsp(esi)
-        esi = instruction_p or esi
-        Interp.docol_run += 1
-        while Interp.docol_run:
-            esi += 1
-            addr = _dictionary[esi]
-            Interp.interpret_4(addr)
 
     @staticmethod
     def exit():
         global esi
         esi = Asm.poprsp()
-        Interp.docol_run -= 1
-
-    @staticmethod
-    def lit():
-        # %esi points to the next command, but in this case it points to the next
-        # literal 32 bit integer. Store that literal.
-        Asm.lodsl()
-        Asm.push(_dictionary[esi])
+        Interp.frame -= 1
 
     @staticmethod
     def _key(stream=sys.stdin):
@@ -126,20 +108,6 @@ class Interp:
     def key():
         value = Interp._key(stream=_stream)
         Asm.push(value)
-
-    @staticmethod
-    def emit():
-        char = Asm.pop()
-        if char:
-            print(chr(char), end='')
-            sys.stdout.flush()
-
-    @staticmethod
-    def emit_word():
-        addr = Asm.pop()
-        if addr:
-            print(_dictionary[addr + 2], end='')
-            sys.stdout.flush()
 
     @staticmethod
     def _word(stream=sys.stdin):
@@ -230,143 +198,10 @@ class Interp:
     @staticmethod
     def tdfa():
         return [
-            Interp._w2a(">CFA"),
-            Interp._w2a("1+"),
-            Interp._w2a("EXIT"),
+            Compiler._w2a(">CFA"),
+            Compiler._w2a("1+"),
+            Compiler._w2a("EXIT"),
         ]
-
-    @staticmethod
-    def create():
-        name = Interp._word()
-
-        # store latest as link
-        _dictionary.append(_dictionary[_vars["LATEST"]])
-
-        # store word header
-        _dictionary.extend([len(name), ''.join(map(chr, name)).upper()])
-
-        # update latest/here
-        _dictionary[_vars["LATEST"]] = _dictionary[_vars["HERE"]]
-        _dictionary[_vars["HERE"]] = len(_dictionary)
-
-    @staticmethod
-    def _comma(word):
-        # append data to _dictionary and update HERE
-        _dictionary.append(word)
-        _dictionary[_vars["HERE"]] = len(_dictionary)
-
-    @staticmethod
-    def comma():
-        word = Asm.pop()
-        Interp._comma(word)
-
-    @staticmethod
-    def rbrac():
-        _dictionary[_vars["STATE"]] = 1
-
-    @staticmethod
-    def lbrac():
-        _dictionary[_vars["STATE"]] = 0
-
-    def _w2a(w):
-        # convert word string to address in _dictionary
-        word = list(map(ord, w))
-        addr = Interp._find(word)
-        return Interp._tcfa(addr)
-
-    @staticmethod
-    def colon():
-        words = [
-            Interp._w2a("CREATE"),              # create the dictionary entry / header
-            Interp._w2a("LIT"), Interp.docol,
-                Interp._w2a(","),               # append DOCOL  (the codeword).
-            Interp._w2a("LATEST"),
-                Interp._w2a("HIDDEN"),          # make the word hidden
-            Interp._w2a("]"),                   # go into compile mode.
-            Interp._w2a("EXIT"),                # return from the function.
-        ]
-        return words
-
-    @staticmethod
-    def semicolon():
-        words = [
-            Interp._w2a("LIT"), Interp._w2a("EXIT"),
-                Interp._w2a(","),	            # append EXIT (so word will return)
-            Interp._w2a("LATEST"),
-                Interp._w2a("HIDDEN"), 	        # toggle hidden flag -- unhide the word
-            Interp._w2a("["),                   # go back to IMMEDIATE mode.
-            Interp._w2a("EXIT"),                # return from the function.
-        ]
-        return words
-
-    @staticmethod
-    def immediate():
-        latest = _dictionary[_vars["LATEST"]]
-        _dictionary[latest + 1] |= F_IMMED
-
-    @staticmethod
-    def hidden():
-        ndx = Asm.pop()
-        _dictionary[_dictionary[ndx] + 1] ^= F_HIDDEN
-
-    @staticmethod
-    def hide():
-        return [Interp._w2a("WORD"), Interp._w2a("FIND"),
-                Interp._w2a("HIDDEN"), Interp._w2a("EXIT")]
-
-    @staticmethod
-    def tick():
-        # because this isn't running on a proper stack machine esi will be this
-        # word and doing Asm.lodsl() on it will get the next word in the
-        # dictionary and not the next command to run, so use Interp._word() to
-        # get the next word if this is being run in the interpreter
-        if _dictionary[esi] == Interp.tick:
-            name = Interp._word()
-            addr = Interp._w2a(''.join(map(chr, name)))
-        else:
-            Asm.lodsl()
-            addr = _dictionary[esi]
-        Asm.push(addr)
-
-    @staticmethod
-    def branch():
-        global esi
-        # if offset was literal, jump  LIT instruction to get offset
-        offset = _dictionary[esi + 1]
-        offset = 2 if _dictionary[offset] == Interp.lit else 1
-        offset = _dictionary[esi + offset] + offset if offset > 0 else 0
-        esi += offset
-
-    @staticmethod
-    def zbranch():
-        # NOTE: docol adds 1 to esi so branching must take that into account
-        cond = Asm.pop()
-        if cond:
-            Asm.lodsl()
-            # if offset was literal jump  LIT instruction too
-            if _dictionary[_dictionary[esi]] == Interp.lit:
-                Asm.lodsl()
-        else:
-            Interp.branch()
-
-    @staticmethod
-    def litstring():
-        global esi
-        Asm.lodsl()
-        # start address of string is after length
-        Asm.push(esi + 1)
-        length = _dictionary[esi]
-        Asm.push(length)
-        esi += length
-
-    @staticmethod
-    def tell():
-        length = Asm.pop()
-        addr = Asm.pop()
-        for _ in range(length):
-            print(chr(_dictionary[addr]), end='')
-            addr += 1
-            sys.stdout.flush()
 
     @staticmethod
     def interpret_1(word):
@@ -384,8 +219,8 @@ class Interp:
         state = _dictionary[_vars["STATE"]]
         if state:
             if Interp.interpret_is_lit:
-                Interp._comma(Interp._w2a("LIT"))
-            Interp._comma(addr)
+                Compiler._comma(Compiler._w2a("LIT"))
+            Compiler._comma(addr)
         else:
             Interp.interpret_4(addr)
 
@@ -402,7 +237,7 @@ class Interp:
             word = _dictionary[addr]
             if callable(word):
                 # pass next instruction address to docol to allow embedded calls
-                word(*((addr,) if word == Interp.docol else ()))
+                word(*((addr,) if word == Compiler.docol else ()))
             else:
                 # variable name retrieval
                 Asm.push(addr)
@@ -413,7 +248,6 @@ class Interp:
             # push literal on stack
             Asm.push(literal)
         else:
-            import pdb; pdb.set_trace()  # noqa
             print(">>>> interp error")
 
     @staticmethod
@@ -450,11 +284,171 @@ class Interp:
         while True:
             try:
                 Interp.interpret()
-                # Interp.branch(), -8
+                # Dict.branch(), -8
             except (KeyboardInterrupt, EOFError):
                 exit()
             except Exception:
-                Interp.docol_run = 0
+                Interp.frame = 0
+
+    @staticmethod
+    def execute():
+        addr = Asm.pop()
+        Interp.interpret_4(addr)
+
+
+class Compiler:
+    @staticmethod
+    def docol(instruction_p=None):
+        global esi
+        Asm.pushrsp(esi)
+        esi = instruction_p or esi
+        Interp.frame += 1
+        while Interp.frame:
+            esi += 1
+            addr = _dictionary[esi]
+            Interp.interpret_4(addr)
+
+    def _w2a(w):
+        # convert word string to address in _dictionary
+        word = list(map(ord, w))
+        addr = Interp._find(word)
+        return Interp._tcfa(addr)
+
+    @staticmethod
+    def colon():
+        words = [
+            Compiler._w2a("CREATE"),              # create the dictionary entry / header
+            Compiler._w2a("LIT"), Compiler.docol,
+                Compiler._w2a(","),               # append DOCOL  (the codeword).
+            Compiler._w2a("LATEST"),
+                Compiler._w2a("HIDDEN"),          # make the word hidden
+            Compiler._w2a("]"),                   # go into compile mode.
+            Compiler._w2a("EXIT"),                # return from the function.
+        ]
+        return words
+
+    @staticmethod
+    def semicolon():
+        words = [
+            Compiler._w2a("LIT"), Compiler._w2a("EXIT"),
+                Compiler._w2a(","),	            # append EXIT (so word will return)
+            Compiler._w2a("LATEST"),
+                Compiler._w2a("HIDDEN"), 	        # toggle hidden flag -- unhide the word
+            Compiler._w2a("["),                   # go back to IMMEDIATE mode.
+            Compiler._w2a("EXIT"),                # return from the function.
+        ]
+        return words
+
+    @staticmethod
+    def create():
+        name = Interp._word()
+
+        # store latest as link
+        _dictionary.append(_dictionary[_vars["LATEST"]])
+
+        # store word header
+        _dictionary.extend([len(name), ''.join(map(chr, name)).upper()])
+
+        # update latest/here
+        _dictionary[_vars["LATEST"]] = _dictionary[_vars["HERE"]]
+        _dictionary[_vars["HERE"]] = len(_dictionary)
+
+    @staticmethod
+    def _comma(word):
+        # append data to _dictionary and update HERE
+        _dictionary.append(word)
+        _dictionary[_vars["HERE"]] = len(_dictionary)
+
+    @staticmethod
+    def comma():
+        word = Asm.pop()
+        Compiler._comma(word)
+
+    @staticmethod
+    def rbrac():
+        _dictionary[_vars["STATE"]] = 1
+
+    @staticmethod
+    def lbrac():
+        _dictionary[_vars["STATE"]] = 0
+
+    @staticmethod
+    def hide():
+        return [Compiler._w2a("WORD"), Compiler._w2a("FIND"),
+                Compiler._w2a("HIDDEN"), Compiler._w2a("EXIT")]
+
+
+class Dict:
+    @staticmethod
+    def immediate():
+        latest = _dictionary[_vars["LATEST"]]
+        _dictionary[latest + 1] |= F_IMMED
+
+    @staticmethod
+    def hidden():
+        ndx = Asm.pop()
+        _dictionary[_dictionary[ndx] + 1] ^= F_HIDDEN
+
+    @staticmethod
+    def tick():
+        # because this isn't running on a proper stack machine esi will be this
+        # word and doing Asm.lodsl() on it will get the next word in the
+        # dictionary and not the next command to run, so use Interp._word() to
+        # get the next word if this is being run in the interpreter
+        if _dictionary[esi] == Dict.tick:
+            name = Interp._word()
+            addr = Compiler._w2a(''.join(map(chr, name)))
+        else:
+            Asm.lodsl()
+            addr = _dictionary[esi]
+        Asm.push(addr)
+
+    @staticmethod
+    def branch():
+        global esi
+        # if offset was literal, jump  LIT instruction to get offset
+        offset = _dictionary[esi + 1]
+        offset = 2 if _dictionary[offset] == Dict.lit else 1
+        offset = _dictionary[esi + offset] + offset if offset > 0 else 0
+        esi += offset
+
+    @staticmethod
+    def zbranch():
+        # NOTE: docol adds 1 to esi so branching must take that into account
+        cond = Asm.pop()
+        if cond:
+            Asm.lodsl()
+            # if offset was literal jump  LIT instruction too
+            if _dictionary[_dictionary[esi]] == Dict.lit:
+                Asm.lodsl()
+        else:
+            Dict.branch()
+
+    @staticmethod
+    def litstring():
+        global esi
+        Asm.lodsl()
+        # start address of string is after length
+        Asm.push(esi + 1)
+        length = _dictionary[esi]
+        Asm.push(length)
+        esi += length
+
+    @staticmethod
+    def tell():
+        length = Asm.pop()
+        addr = Asm.pop()
+        for _ in range(length):
+            print(chr(_dictionary[addr]), end='')
+            addr += 1
+            sys.stdout.flush()
+
+    @staticmethod
+    def lit():
+        # %esi points to the next command, but in this case it points to the next
+        # literal 32 bit integer. Store that literal.
+        Asm.lodsl()
+        Asm.push(_dictionary[esi])
 
     @staticmethod
     def char():
@@ -462,9 +456,26 @@ class Interp:
         Asm.push(name[0])
 
     @staticmethod
-    def execute():
+    def emit():
+        char = Asm.pop()
+        if char:
+            print(chr(char), end='')
+            sys.stdout.flush()
+
+    @staticmethod
+    def emit_word():
         addr = Asm.pop()
-        Interp.interpret_4(addr)
+        if addr:
+            print(_dictionary[addr + 2], end='')
+            sys.stdout.flush()
+
+    @staticmethod
+    def words():
+        latest = _vars["LATEST"]
+        while latest:
+            print(_dictionary[latest + 2], end=" ")
+            latest = _dictionary[latest]
+        print()
 
 
 class Asm:
@@ -724,7 +735,7 @@ class Stack:
     def rstor():
         global _rsp
         new_rsp = Asm.pop()
-        Interp.docol_run -= (_rsp - new_rsp - 1)
+        Interp.frame -= (_rsp - new_rsp - 1)
         _rsp = new_rsp
 
     @staticmethod
@@ -870,34 +881,39 @@ defcode("C@", 2, Memory.cat)
 defcode("CMOVE", 5, Memory.cmove)
 
 
+# --- DICT ---
+defcode("LIT", 3, Dict.lit)
+defcode("EMIT", 4, Dict.emit)
+defcode("ID.", 3, Dict.emit_word)
+defcode("WORDS", 5, Dict.words)
+defcode("IMMEDIATE", 9, Dict.immediate, flags=F_IMMED)
+defcode("HIDDEN", 6, Dict.hidden)
+defcode("BRANCH", 6, Dict.branch)
+defcode("0BRANCH", 7, Dict.zbranch)
+defcode("LITSTRING", 9, Dict.litstring)
+defcode("TELL", 4, Dict.tell)
+defcode("CHAR", 4, Dict.char)
+defcode("'", 1, Dict.tick)
+defcode("INCLUDE", 7, _load_core)
+
+
 # --- INTERPRETER ---
 defcode("EXIT", 4, Interp.exit)
-defcode("LIT", 3, Interp.lit)
 defcode("KEY", 3, Interp.key)
 defcode("WORD", 4, Interp.word)
-defcode("EMIT", 4, Interp.emit)
-defcode("ID.", 3, Interp.emit_word)
 defcode("FIND", 4, Interp.find)
 defcode(">CFA", 4, Interp.tcfa)
 defword(">DFA", 4, Interp.tdfa)
-defcode("CREATE", 6, Interp.create)
-defcode(",", 1, Interp.comma)
-defcode("[", 1, Interp.lbrac, flags=F_IMMED)
-defcode("]", 1, Interp.rbrac)
-defcode("IMMEDIATE", 9, Interp.immediate, flags=F_IMMED)
-defcode("HIDDEN", 6, Interp.hidden)
-defcode("BRANCH", 6, Interp.branch)
-defcode("0BRANCH", 7, Interp.zbranch)
-defcode("LITSTRING", 9, Interp.litstring)
-defcode("TELL", 4, Interp.tell)
+defcode("CREATE", 6, Compiler.create)
+defcode(",", 1, Compiler.comma)
+defcode("[", 1, Compiler.lbrac, flags=F_IMMED)
+defcode("]", 1, Compiler.rbrac)
+defcode("EXECUTE", 7, Interp.execute)
 defcode("QUIT", 4, Interp.quit)
 defcode("INTERPRET", 9, Interp.interpret)
-defcode("CHAR", 4, Interp.char)
-defcode("EXECUTE", 7, Interp.execute)
-defword("HIDE", 4, Interp.hide)
-defcode("'", 1, Interp.tick)
-defword(":", 1, Interp.colon)
-defword(";", 1, Interp.semicolon, flags=F_IMMED)
+defword("HIDE", 4, Compiler.hide)
+defword(":", 1, Compiler.colon)
+defword(";", 1, Compiler.semicolon, flags=F_IMMED)
 
 
 # --- STACK ---
@@ -914,7 +930,7 @@ defcode("DSP!", 4, Stack.dspstor)
 defconst("VERSION", 7, "JONES_VERSION")
 defconst("R0", 2, _r0)
 defconst("PAD", 5, _pad0)
-defconst("DOCOL", 5, Interp.docol)
+defconst("DOCOL", 5, Compiler.docol)
 defconst("F_IMMED", 7, F_IMMED)
 defconst("F_HIDDEN", 8, F_HIDDEN)
 defconst("F_LENMASK", 9, F_LENMASK)
