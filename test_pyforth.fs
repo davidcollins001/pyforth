@@ -1,34 +1,44 @@
-\ TODO add words for asserting correctness
+include testing.fs
 
-1 2 +
-.ds  \ exp: [3]
+
+: test:+ + =assert ;
+3 1 2 test:+
+2 0 2 test:+
+0 -1 1 test:+
 
 : a 5 ;
 : b a ;
-b
-.ds  \ exp: [3 5]
-drop drop
+: test:word-in-word
+  5 b =assert ;
+\ test:word-in-word
 
-create e 7 ,
-e @ .ds  \ exp: [7]
+ 7 variable e
+17 constant f
+: test:create
+  7 e @ =assert
+  5 e +!
+  12 e @ =assert ;
+test:create
+17 f =assert
 
-5 e +!
-e @ .ds  \ exp: [7 12]
-drop drop
-
-' 1+
-.ds  \ exp: [87]
-
-: c ' 1+ ;
-c
-.ds  \ exp: [87 87]
-drop drop
+: test:tick
+  ['] 1+ ;
+' 1+ test:tick =assert
+3 2 ' 1+ execute =assert
+3 2 test:tick execute =assert
 
 \ jump back 3 + 2 added in `branch` to skip offset
-: a dup swap 1- ;
-: b a dup 0= 0branch -6 ;
-4 b
-.ds  \ exp: [4, 3, 2, 1, 0]
-drop drop drop drop drop
+: c dup swap 1- ;
+: d c dup 0= 0branch -6 ;
+4 d
+0 swap =assert
+1 swap =assert
+2 swap =assert
+3 swap =assert
+4 swap =assert
 
-.ds \ exp: []
+4 3 2 1 0
+: test:loop 5 0 do i =assert loop ;
+test:loop
+
+test-summary
