@@ -40,10 +40,12 @@ def _start():
 
 
 # TODO: move into Interp?
-def _load_core():
+def _load_core(filename=None):
     global _stream
+    if not filename:
+        filename = ''.join(map(chr, Interp._word()))
     try:
-        with open("core.fs") as f:
+        with open(filename) as f:
             _stream = f
             while True:
                 Interp.interpret(f)
@@ -914,6 +916,7 @@ defcode("INTERPRET", 9, Interp.interpret)
 defword("HIDE", 4, Compiler.hide)
 defword(":", 1, Compiler.colon)
 defword(";", 1, Compiler.semicolon, flags=F_IMMED)
+defcode("INCLUDE", 7, _load_core)
 
 
 # --- STACK ---
@@ -962,5 +965,9 @@ defcode(".RS", 2, lambda: print(_dictionary[_r0: _rsp]))
 defcode(".dict", 5, lambda: print(_dictionary))
 
 
-_load_core()
-_start()
+_load_core("core.fs")
+if len(sys.argv) == 1:
+    _start()
+else:
+    for filename in sys.argv[1:]:
+        _load_core(filename)
