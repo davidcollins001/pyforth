@@ -41,4 +41,8 @@ test:create
 : test:loop 5 0 do i =assert loop ;
 test:loop
 
+:noname 3 ;
+: test:noname execute 3 =assert ;
+test:noname
+
 test-summary

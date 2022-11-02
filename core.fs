@@ -1226,7 +1226,7 @@
 )
 
 : :NONAME
-    0 0 CREATE  ( create a word with no name - we need a dictionary header because ; expects it )
+    0 , 0 ,     ( create a dictionary header because ; expects it )
     HERE @      ( current HERE value is the address of the codeword, ie. the xt )
     DOCOL ,     ( compile DOCOL (the codeword) )
     ]       ( go into compile mode )
